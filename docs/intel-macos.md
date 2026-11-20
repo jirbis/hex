@@ -117,8 +117,34 @@ reset the Launch Services override with `launchctl unsetenv HEX_BACKEND`.
 Check the Hex logs for the actual backend, not merely GPU activity in
 Activity Monitor.
 
-The Intel MacBook Pro's AMD GPU is Metal-capable, but **no GPU speed gain is
-claimed** until CPU and Metal transcribe the same clips on the real machine.
+### Physical Radeon Pro 5500M result (2026-11-20)
+
+**Metal speech inference is currently broken on this Intel Mac.** With the
+same dictation setup, CPU produces correct text but `HEX_BACKEND=metal`
+produced long repetitions of `tamb tamb tamb ...` although the speaker said
+different words. This is a **correctness failure, not a performance result**.
+A separate earlier crash report recorded SIGABRT in `transcription-engine`;
+the common cause has not been established.
+
+**Keep `HEX_BACKEND` unset (default CPU on Intel), or set it explicitly to
+`cpu` and fully restart the app.** On the test Mac:
+
+```sh
+launchctl unsetenv HEX_BACKEND
+# or: launchctl setenv HEX_BACKEND cpu
+```
+
+`RUNE_GPU_BACKEND=metal` in the bundle concerns **UI rendering**, not
+transcription. The display Metal backend may be used independently from
+CPU speech inference.
+
+Before attempting another GPU speed measurement, use a saved WAV and the
+same GGUF file to verify a *correct transcript* on Metal. See the investigation
+on [fork PR #1](https://github.com/jirbis/hex/pull/1) and upstream
+[ggml-org/llama.cpp#30702](https://github.com/ggml-org/llama.cpp/issues/30702)
+(silent Metal output corruption on the same Radeon Pro 5500M). These are
+strongly related symptoms, not yet a verified shared root cause.
+
 
 ## Verification / limitations
 
