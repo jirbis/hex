@@ -54,13 +54,61 @@ Test the same speech model and audio with each backend:
 - `HEX_BACKEND=metal` — request the Metal speech backend on Radeon;
   reports an error rather than treating a CPU fallback as a valid GPU result.
 
-For command-line runs, prefix the command with the desired environment
-variable, for example:
+The hidden `benchmark-transcription` command **requires a JSON manifest**
+(the bare command without one is invalid). Record or supply the same WAV
+for both devices, and place this `benchmark.json` in the same folder as
+`test.wav` (with the exact reference words you spoke):
+
+```json
+{
+  "clips": [
+    {
+      "id": "same-voice",
+      "audio": "test.wav",
+      "expected": "Точный текст, произнесённый на записи",
+      "group": "ordinary"
+    }
+  ]
+}
+```
+
+Then run (with the same GGUF model, preferably the one installed by Hex):
 
 ```sh
-HEX_BACKEND=cpu "/Applications/Hex Test.app/Contents/MacOS/hex" benchmark-transcription
-HEX_BACKEND=metal "/Applications/Hex Test.app/Contents/MacOS/hex" benchmark-transcription
+HEX="/Applications/Hex Test.app/Contents/MacOS/hex"
+cd ~/Desktop/hex-bench
+HEX_BACKEND=cpu "$HEX" benchmark-transcription benchmark.json --warmups 1 --runs 5 > cpu.jsonl
+HEX_BACKEND=cpuaccel "$HEX" benchmark-transcription benchmark.json --warmups 1 --runs 5 > cpuaccel.jsonl
+HEX_BACKEND=metal "$HEX" benchmark-transcription benchmark.json --warmups 1 --runs 5 > metal.jsonl
 ```
+
+For a non-default model, add `--model /absolute/path/to/model.gguf` to
+**all three commands**. Do not compare different GGUF files.
+
+Each file contains a `{"type":"model","backend":...}` record and one
+`{"type":"summary",...}` with `load_ms`, `median_run_ms`,
+`median_x_realtime` and `wer`. Use median run time for warmed-up
+inference; report loading time separately. A Metal request that fails should
+be marked as unsupported, **not** as a slow CPU run.
+
+```sh
+python3 - <<'PY'
+import json
+for backend in ('cpu','cpuaccel','metal'):
+    try:
+        with open(f'{backend}.jsonl') as f:
+            records = [json.loads(line) for line in f if line.strip()]
+        device = next(r for r in records if r['type'] == 'model')
+        row = next(r for r in records if r['type'] == 'summary')
+        print(f"{backend:8} backend={device['backend']:27} load={row['load_ms']:.0f}ms"
+              f" median={row['median_run_ms']:.0f}ms"
+              f" x_realtime={row['median_x_realtime']:.2f}"
+              f" WER={row['wer']:.3f}")
+    except (OSError, StopIteration, ValueError) as error:
+        print(f"{backend:8} unavailable/failed: {error}")
+PY
+```
+
 
 For the **GUI launched through Finder**, an environment variable set in an
 interactive terminal may not be inherited by Launch Services. Quit Hex Test,
