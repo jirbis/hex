@@ -1332,10 +1332,27 @@ impl Parakeet {
         } else {
             transcribe_cpp::disable_logging();
         }
+        // Intel Macs with AMD GPUs may expose Metal but run speech inference
+        // considerably slower than the CPU. Default to CPU on Intel; allow
+        // explicitly benchmarking Metal with HEX_BACKEND=metal.
+        let backend = if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+            match std::env::var("HEX_BACKEND").as_deref() {
+                Err(_) | Ok("cpu") => Backend::Cpu,
+                Ok("cpuaccel") => Backend::CpuAccel,
+                Ok("metal") => Backend::Metal,
+                Ok(other) => {
+                    return Err(eyre!(
+                        "unknown HEX_BACKEND={other}; expected cpu, cpuaccel, or metal"
+                    ));
+                }
+            }
+        } else {
+            Backend::Metal
+        };
         let model = Model::load_with(
             model_path,
             &ModelOptions {
-                backend: Backend::Metal,
+                backend,
                 ..Default::default()
             },
         )
@@ -1346,7 +1363,11 @@ impl Parakeet {
             )
         })?;
         let device = model.device()?;
-        if device.kind != "metal" {
+        // For a requested Metal backend, silently falling back to CPU would
+        // invalidate GPU benchmarks. CPU backends are allowed only on Intel.
+        let requires_metal = !cfg!(all(target_os = "macos", target_arch = "x86_64"))
+            || std::env::var("HEX_BACKEND").as_deref() == Ok("metal");
+        if requires_metal && device.kind != "metal" {
             return Err(eyre!(
                 "transcription model selected {} ({}) instead of Metal",
                 device.kind,
