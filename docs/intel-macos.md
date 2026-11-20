@@ -1,0 +1,88 @@
+# Hex on Intel macOS (experimental fork build)
+
+This fork has an **experimental**, independently packaged Intel macOS build for the
+MacBook Pro 16-inch (2019), Intel Core i9 and AMD Radeon Pro 5500M 8 GB.
+It is **not** an upstream release and has not yet been tested on the actual
+Radeon 5500M. See [upstream Intel report](https://github.com/anomalyco/hex/issues/953).
+
+## Get the Intel application
+
+Open [Intel macOS build actions](https://github.com/jirbis/hex/actions/workflows/intel-macos.yml).
+Choose the run for `feature/intel-macos-hex`, and download its
+`hex-intel-macos-x86_64` artifact. Extract `hex-intel-macos-x86_64.zip`
+and drag **Hex Test.app** to Applications. The app uses the separate bundle ID
+`anomaly.hex.test` and does **not** check for upstream updates.
+
+The bundle is ad-hoc signed and not notarized by Apple. Only install it if
+you trust the fork and its workflow; macOS may require manually allowing the
+app through Privacy & Security. Do not disable Gatekeeper globally.
+
+The GitHub Actions runner validates the x86_64 binary and code signature.
+This is **not** proof of a functioning hotkey, microphone permissions, GPU
+inference, or dictation on your actual laptop.
+
+## Build yourself on an Intel Mac
+
+- macOS Sequoia 15.8.x (15.6+ for Xcode 26.3)
+- Xcode 26.3, Command Line Tools selected with `xcode-select`
+- Rust stable and Cargo
+- Around 20 GB of free disk space for source/toolchains/build outputs
+
+```sh
+git clone https://github.com/jirbis/hex.git
+cd hex
+git checkout feature/intel-macos-hex
+xcodebuild -version
+rustup default stable
+xcrun --sdk macosx metal --version || xcodebuild -downloadComponent MetalToolchain
+HEX_TEST_BUILD=1 scripts/build-app.sh
+# App: target/app/Hex Test.app
+```
+
+## CPU vs AMD GPU
+
+On **Intel macOS only**, the Parakeet/transcribe.cpp model loader defaults to
+**CPU** to avoid a slow/incompatible Metal device. The rendering engine is
+separately pinned to **Metal** in the packaged app via
+`LSEnvironment.RUNE_GPU_BACKEND=metal`, because the default Rune/wgpu
+fallback has crashed on older Intel Macs.
+
+Test the same speech model and audio with each backend:
+
+- `HEX_BACKEND=cpu` — baseline, default.
+- `HEX_BACKEND=cpuaccel` — alternate CPU implementation (if available).
+- `HEX_BACKEND=metal` — request the Metal speech backend on Radeon;
+  reports an error rather than treating a CPU fallback as a valid GPU result.
+
+For command-line runs, prefix the command with the desired environment
+variable, for example:
+
+```sh
+HEX_BACKEND=cpu "/Applications/Hex Test.app/Contents/MacOS/hex" benchmark-transcription
+HEX_BACKEND=metal "/Applications/Hex Test.app/Contents/MacOS/hex" benchmark-transcription
+```
+
+For the **GUI launched through Finder**, an environment variable set in an
+interactive terminal may not be inherited by Launch Services. Quit Hex Test,
+then use `launchctl setenv HEX_BACKEND metal` before relaunching via `open`;
+reset the Launch Services override with `launchctl unsetenv HEX_BACKEND`.
+Check the Hex logs for the actual backend, not merely GPU activity in
+Activity Monitor.
+
+The Intel MacBook Pro's AMD GPU is Metal-capable, but **no GPU speed gain is
+claimed** until CPU and Metal transcribe the same clips on the real machine.
+
+## Verification / limitations
+
+- Source changes: Intel transcription backend selection, Intel-only Rune
+  packaging setting, dedicated `macos-15-intel` GitHub Actions workflow.
+- The existing Swift bridge already has an Xcode 26.3-compatible
+  `#if compiler(>=6.3)` guard for `SystemLanguageModel.contextSize`;
+  it needs no additional patch.
+- CI produces a ZIP containing an ad-hoc signed `Hex Test.app`, not a
+  Developer ID-signed or notarized DMG.
+- The CI runner has no Radeon Pro 5500M. Confirm Metal availability, model
+  loading, real hotkey, dictation/paste, and German/Russian transcription on
+  the MacBook before declaring the port complete.
+- Do not copy the CPU/GPU performance figures from the older Radeon Pro 455
+  report to this GPU. Measure on the 5500M.
