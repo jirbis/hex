@@ -1,0 +1,121 @@
+name: Intel macOS Hex Test
+
+# A separate, ad-hoc-signed Intel build for this fork. The upstream workflows use
+# Apple silicon runners; no Apple signing secrets or deployment credentials.
+on:
+  push:
+    branches:
+      - feature/intel-macos-hex
+      - dev
+    paths:
+      - "src/**"
+      - "scripts/build-app.sh"
+      - "docs/intel-macos.md"
+      - ".github/workflows/intel-macos.yml"
+  pull_request:
+    branches:
+      - feature/intel-macos-hex
+    paths:
+      - "src/**"
+      - "scripts/build-app.sh"
+      - "docs/intel-macos.md"
+      - ".github/workflows/intel-macos.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: intel-hex-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  intel-macos:
+    name: macOS 15 / x86_64 / Xcode 26.3
+    runs-on: macos-15-intel
+    timeout-minutes: 120
+    env:
+      HEX_TEST_BUILD: "1"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Select Xcode 26.3 and verify Intel runner
+        shell: bash
+        run: |
+          test "$(uname -m)" = x86_64
+          test -d /Applications/Xcode_26.3.app/Contents/Developer || {
+            echo "::error::Xcode 26.3 is not installed on this image"; exit 1;
+          }
+          sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+          sw_vers
+          xcodebuild -version
+          xcrun --show-sdk-version
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          components: rustfmt
+          targets: x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: intel-macos-15-xcode-26.3
+          cache-on-failure: true
+      - name: Install Metal toolchain if needed
+        run: xcrun --sdk macosx metal --version || xcodebuild -downloadComponent MetalToolchain
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+      - name: Build ad-hoc-signed Hex Test.app (Intel)
+        shell: bash
+        run: |
+          scripts/setup.sh
+          scripts/build-app.sh
+      - name: Verify package architecture, identity and signature
+        shell: bash
+        run: |
+          bundle="target/app/Hex Test.app"
+          test -d "$bundle"
+          lipo -archs "$bundle/Contents/MacOS/hex" | grep -qw x86_64
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$bundle/Contents/Info.plist")" = "anomaly.hex.test"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSEnvironment:RUNE_GPU_BACKEND' "$bundle/Contents/Info.plist")" = "metal"
+          codesign --verify --deep --strict --verbose=2 "$bundle"
+          "$bundle/Contents/MacOS/hex" --version
+      - name: Package Intel .app ZIP
+        shell: bash
+        run: |
+          mkdir -p dist
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent \
+            "target/app/Hex Test.app" dist/hex-intel-macos-x86_64.zip
+          shasum -a 256 dist/hex-intel-macos-x86_64.zip | tee dist/SHA256SUMS
+      - name: Smoke-launch the app (non-blocking on headless CI)
+        id: smoke
+        continue-on-error: true
+        shell: bash
+        run: |
+          RUNE_GPU_BACKEND=metal HEX_BACKEND=cpu HEX_SMOKE_SECONDS=8 \
+            scripts/smoke-macos-app.sh "target/app/Hex Test.app"
+      - name: Flag a non-gating headless smoke failure
+        if: steps.smoke.outcome == 'failure'
+        run: echo "::warning::Intel headless launch check failed; artifact still uploaded. This is not a dictation correctness test."
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: hex-intel-macos-x86_64
+          path: |
+            dist/hex-intel-macos-x86_64.zip
+            dist/SHA256SUMS
+          retention-days: 14
+          if-no-files-found: error
+      - name: Summary
+        if: always()
+        env:
+          SMOKE_RESULT: ${{ steps.smoke.outcome }}
+        run: |
+          {
+            echo "## Intel macOS build"
+            echo "Runner: macos-15-intel; Xcode 26.3"
+            echo "Ad-hoc signed, **not notarized**. Download the artifact above."
+            echo "Headless smoke test: $SMOKE_RESULT (non-gating; does not test transcription)"
+            echo "On Intel the speech model defaults to CPU. Set \`HEX_BACKEND=metal\` to test AMD GPU."
+            echo "Physical Radeon 5500M: CPU dictation works; explicit Metal ASR produced incorrect text (tamb repetition)."
+          } >> "$GITHUB_STEP_SUMMARY"

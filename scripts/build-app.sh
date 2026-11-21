@@ -74,6 +74,16 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources" "$bundle/Contents
 cp "$root/target/release/hex" "$executable"
 cp "$root/target/release/scrawl-helper" "$bundle/Contents/MacOS/scrawl-helper"
 cp "$root/app/Info.plist" "$bundle/Contents/Info.plist"
+# Intel Mac + Radeon: keep Rune's UI on Metal rather than wgpu.
+# Detect the built binary, not the runner architecture (Rosetta/cross builds).
+# Only modify this generated bundle, never the shared Apple Silicon Info.plist.
+if [ "$(lipo -archs "$executable")" = x86_64 ]; then
+  plist="$bundle/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c 'Print :LSEnvironment' "$plist" >/dev/null 2>&1 \
+    || /usr/libexec/PlistBuddy -c 'Add :LSEnvironment dict' "$plist"
+  /usr/libexec/PlistBuddy -c 'Set :LSEnvironment:RUNE_GPU_BACKEND metal' "$plist" >/dev/null 2>&1 \
+    || /usr/libexec/PlistBuddy -c 'Add :LSEnvironment:RUNE_GPU_BACKEND string metal' "$plist"
+fi
 cp "$root/LICENSE" "$root/THIRD_PARTY_NOTICES.md" "$bundle/Contents/Resources/"
 HEX_VERSION="$version" HEX_BUILD_NUMBER="$build_number" HEX_TEAM_ID="$team_id" HEX_CODESIGN_IDENTITY="${identity#-}" HEX_SKIP_INSTALL_SCRIPT=1 \
   "$root/scripts/build-hex-microphone-driver.sh" "$bundle/Contents/Library" >&2
