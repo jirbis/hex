@@ -1267,6 +1267,28 @@ pub(crate) fn default_model_path() -> Result<std::path::PathBuf> {
     ))
 }
 
+/// Backend for transcribe.cpp, not the Rune UI rendering backend.
+/// Apple silicon keeps Metal; Intel macOS defaults to a correct CPU path.
+fn speech_backend() -> Result<Backend> {
+    if !cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        return Ok(Backend::Metal);
+    }
+    match std::env::var("HEX_BACKEND") {
+        Err(std::env::VarError::NotPresent) => Ok(Backend::Cpu),
+        Err(std::env::VarError::NotUnicode(_)) => Err(eyre!(
+            "HEX_BACKEND is not valid UTF-8; expected cpu, cpuaccel, or metal"
+        )),
+        Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "" | "cpu" => Ok(Backend::Cpu),
+            "cpuaccel" => Ok(Backend::CpuAccel),
+            "metal" => Ok(Backend::Metal),
+            other => Err(eyre!(
+                "unknown HEX_BACKEND={other}; expected cpu, cpuaccel, or metal"
+            )),
+        },
+    }
+}
+
 impl Parakeet {
     #[cfg(test)]
     pub fn load() -> Result<Self> {
@@ -1327,28 +1349,21 @@ impl Parakeet {
         diagnostics: bool,
         selection: Option<&TranscriptionSelection>,
     ) -> Result<Self> {
-        if diagnostics {
+        let backend = speech_backend()?;
+        let requires_metal = matches!(&backend, Backend::Metal);
+        let intel_metal = requires_metal && cfg!(all(target_os = "macos", target_arch = "x86_64"));
+        // The runtime warns about unsupported AMD ggml kernels. Preserve those
+        // warnings even if a benchmark would otherwise disable its logging.
+        if diagnostics || intel_metal {
             TRANSCRIBE_LOGGING.call_once(transcribe_cpp::init_logging);
         } else {
             transcribe_cpp::disable_logging();
         }
-        // Intel Macs with AMD GPUs may expose Metal but run speech inference
-        // considerably slower than the CPU. Default to CPU on Intel; allow
-        // explicitly benchmarking Metal with HEX_BACKEND=metal.
-        let backend = if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-            match std::env::var("HEX_BACKEND").as_deref() {
-                Err(_) | Ok("cpu") => Backend::Cpu,
-                Ok("cpuaccel") => Backend::CpuAccel,
-                Ok("metal") => Backend::Metal,
-                Ok(other) => {
-                    return Err(eyre!(
-                        "unknown HEX_BACKEND={other}; expected cpu, cpuaccel, or metal"
-                    ));
-                }
-            }
-        } else {
-            Backend::Metal
-        };
+        if intel_metal {
+            tracing::warn!(
+                "Intel macOS Metal ASR is experimental: Radeon Pro 5500M may emit incorrect transcripts; prefer HEX_BACKEND=cpu"
+            );
+        }
         let model = Model::load_with(
             model_path,
             &ModelOptions {
@@ -1363,10 +1378,8 @@ impl Parakeet {
             )
         })?;
         let device = model.device()?;
-        // For a requested Metal backend, silently falling back to CPU would
-        // invalidate GPU benchmarks. CPU backends are allowed only on Intel.
-        let requires_metal = !cfg!(all(target_os = "macos", target_arch = "x86_64"))
-            || std::env::var("HEX_BACKEND").as_deref() == Ok("metal");
+        // An explicitly requested Metal backend must not silently fall back
+        // to CPU: that would invalidate correctness and speed experiments.
         if requires_metal && device.kind != "metal" {
             return Err(eyre!(
                 "transcription model selected {} ({}) instead of Metal",
