@@ -2,13 +2,15 @@
 
 This fork has an **experimental**, independently packaged Intel macOS build for the
 MacBook Pro 16-inch (2019), Intel Core i9 and AMD Radeon Pro 5500M 8 GB.
-It is **not** an upstream release and has not yet been tested on the actual
-Radeon 5500M. See [upstream Intel report](https://github.com/anomalyco/hex/issues/953).
+It is **not** an upstream release. CPU dictation was tested on the actual
+Radeon Pro 5500M MacBook (macOS 15.1); an explicit Metal ASR override was
+incorrect. See [upstream Intel issue](https://github.com/anomalyco/hex/issues/953).
 
 ## Get the Intel application
 
 Open [Intel macOS build actions](https://github.com/jirbis/hex/actions/workflows/intel-macos.yml).
-Choose the run for `feature/intel-macos-hex`, and download its
+Choose a successful run on `feature/intel-macos-hex` (or `dev` after merge),
+and download its
 `hex-intel-macos-x86_64` artifact. Extract `hex-intel-macos-x86_64.zip`
 and drag **Hex Test.app** to Applications. The app uses the separate bundle ID
 `anomaly.hex.test` and does **not** check for upstream updates.
@@ -23,7 +25,8 @@ inference, or dictation on your actual laptop.
 
 ## Build yourself on an Intel Mac
 
-- macOS Sequoia 15.8.x (15.6+ for Xcode 26.3)
+- macOS Sequoia 15.x for running the app (physically tested on 15.1);
+  building with Xcode 26.3 requires macOS 15.6+
 - Xcode 26.3, Command Line Tools selected with `xcode-select`
 - Rust stable and Cargo
 - Around 20 GB of free disk space for source/toolchains/build outputs
@@ -51,8 +54,10 @@ Test the same speech model and audio with each backend:
 
 - `HEX_BACKEND=cpu` — baseline, default.
 - `HEX_BACKEND=cpuaccel` — alternate CPU implementation (if available).
-- `HEX_BACKEND=metal` — request the Metal speech backend on Radeon;
-  reports an error rather than treating a CPU fallback as a valid GPU result.
+- `HEX_BACKEND=metal` — experimental GPU diagnostic only. On the Radeon 5500M,
+  the unfixed ggml concurrent-dispatch backend silently emits incorrect text;
+  use it only to reproduce a bug, not for real dictation. Hex rejects a silent
+  CPU fallback when Metal was requested.
 
 The hidden `benchmark-transcription` command **requires a JSON manifest**
 (the bare command without one is invalid). Record or supply the same WAV
@@ -125,6 +130,13 @@ produced long repetitions of `tamb tamb tamb ...` although the speaker said
 different words. This is a **correctness failure, not a performance result**.
 A separate earlier crash report recorded SIGABRT in `transcription-engine`;
 the common cause has not been established.
+
+In standalone transcribe.cpp tests, `GGML_METAL_CONCURRENCY_DISABLE=1`
+fixed Parakeet/GigaAM transcript corruption; the corrected Metal path was
+slower than CPU (Parakeet 281 ms CPU / 456 ms Metal on a 3.5 s clip).
+This ggml fix **has not been integrated into this Hex app**. Whisper still
+produced incorrect GPU transcripts and must remain on CPU. CI only verifies
+that an app can be built and packaged, not ASR correctness.
 
 **Keep `HEX_BACKEND` unset (default CPU on Intel), or set it explicitly to
 `cpu` and fully restart the app.** On the test Mac:

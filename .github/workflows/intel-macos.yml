@@ -1,9 +1,18 @@
 name: Intel macOS Hex Test
 
-# A separate, unsigned Intel build for this fork. The upstream workflows use
+# A separate, ad-hoc-signed Intel build for this fork. The upstream workflows use
 # Apple silicon runners; no Apple signing secrets or deployment credentials.
 on:
   push:
+    branches:
+      - feature/intel-macos-hex
+      - dev
+    paths:
+      - "src/**"
+      - "scripts/build-app.sh"
+      - "docs/intel-macos.md"
+      - ".github/workflows/intel-macos.yml"
+  pull_request:
     branches:
       - feature/intel-macos-hex
     paths:
@@ -86,6 +95,9 @@ jobs:
         run: |
           RUNE_GPU_BACKEND=metal HEX_BACKEND=cpu HEX_SMOKE_SECONDS=8 \
             scripts/smoke-macos-app.sh "target/app/Hex Test.app"
+      - name: Flag a non-gating headless smoke failure
+        if: steps.smoke.outcome == 'failure'
+        run: echo "::warning::Intel headless launch check failed; artifact still uploaded. This is not a dictation correctness test."
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: hex-intel-macos-x86_64
@@ -103,7 +115,7 @@ jobs:
             echo "## Intel macOS build"
             echo "Runner: macos-15-intel; Xcode 26.3"
             echo "Ad-hoc signed, **not notarized**. Download the artifact above."
-            echo "Headless smoke test: $SMOKE_RESULT"
+            echo "Headless smoke test: $SMOKE_RESULT (non-gating; does not test transcription)"
             echo "On Intel the speech model defaults to CPU. Set \`HEX_BACKEND=metal\` to test AMD GPU."
-            echo "Real Radeon 5500M testing still required."
+            echo "Physical Radeon 5500M: CPU dictation works; explicit Metal ASR produced incorrect text (tamb repetition)."
           } >> "$GITHUB_STEP_SUMMARY"
