@@ -132,6 +132,15 @@ pub(crate) fn stage(
 #[cfg(target_os = "macos")]
 fn rewrite(text: &str) -> (String, Option<ProcessingObservation>) {
     let started = Instant::now();
+    #[cfg(target_arch = "x86_64")]
+    let outcome = crate::dictation::local_ai::generate_text(
+        INSTRUCTIONS,
+        text,
+        TEMPERATURE,
+        TIME_BUDGET,
+        &AtomicBool::new(false),
+    );
+    #[cfg(not(target_arch = "x86_64"))]
     let outcome =
         crate::apple_intelligence::generate_text(INSTRUCTIONS, text, TEMPERATURE, TIME_BUDGET);
     let latency_ms = started.elapsed().as_millis() as u64;
