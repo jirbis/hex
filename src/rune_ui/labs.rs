@@ -689,25 +689,39 @@ fn rows(ui: &Ui) -> Vec<Row> {
     // the row it built (off, disabled, saying why), else the card says why.
     if caps.os == super::platform::Os::Macos {
         let clean_up = row(Feature::CleanUpWithAppleIntelligence, Some(&SPARKLES));
-        rows.push(match Feature::CleanUpWithAppleIntelligence.managed() {
-            Some(_) => clean_up,
-            None => Row {
-                locked: !ui.platform.notes.is_available() && !clean_up.on,
-                note: super::platform_settings::clean_up_note(ui.platform.notes),
+        if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+            rows.push(Row {
+                note: Some(tr("Requires a loopback llama.cpp or Ollama server. Set HEX_LOCAL_AI_ENDPOINT and HEX_LOCAL_AI_MODEL in Hex's launch environment.").to_owned()),
                 ..clean_up
-            },
-        });
+            });
+        } else {
+            rows.push(match Feature::CleanUpWithAppleIntelligence.managed() {
+                Some(_) => clean_up,
+                None => Row {
+                    locked: !ui.platform.notes.is_available() && !clean_up.on,
+                    note: super::platform_settings::clean_up_note(ui.platform.notes),
+                    ..clean_up
+                },
+            });
+        }
         // The same local model, in the modes that opt in, instead of the
         // OpenCode rewrite.
         let neutral = row(Feature::NeutralVoice, Some(&SPARKLES));
-        rows.push(match Feature::NeutralVoice.managed() {
-            Some(_) => neutral,
-            None => Row {
-                locked: !ui.platform.notes.is_available() && !neutral.on,
-                note: super::platform_settings::clean_up_note(ui.platform.notes),
+        if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+            rows.push(Row {
+                note: Some(tr("Uses the same local server as Clean up with local AI. Enable Neutral voice in the chosen mode too.").to_owned()),
                 ..neutral
-            },
-        });
+            });
+        } else {
+            rows.push(match Feature::NeutralVoice.managed() {
+                Some(_) => neutral,
+                None => Row {
+                    locked: !ui.platform.notes.is_available() && !neutral.on,
+                    note: super::platform_settings::clean_up_note(ui.platform.notes),
+                    ..neutral
+                },
+            });
+        }
     }
     rows.push(row(Feature::HistoryStats, None));
     rows.push(row(Feature::KeepRecordings, None));
