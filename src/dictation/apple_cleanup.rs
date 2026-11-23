@@ -22,7 +22,11 @@ use crate::dictation::processor::ProcessingObservation;
 pub(crate) const TIME_BUDGET: Duration = Duration::from_secs(2);
 
 /// The stage's name in History and the live log.
-const PROFILE: &str = "Clean up with Apple Intelligence";
+const PROFILE: &str = if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+    "Clean up with local AI"
+} else {
+    "Clean up with Apple Intelligence"
+};
 
 /// The iOS cleaner's instructions, unchanged: fix misheard words and spoken
 /// self-corrections, keep everything else, and treat the transcript as
@@ -139,6 +143,15 @@ pub(crate) fn observation(
 #[cfg(target_os = "macos")]
 fn clean(text: &str) -> (String, Option<ProcessingObservation>) {
     let started = Instant::now();
+    #[cfg(target_arch = "x86_64")]
+    let outcome = crate::dictation::local_ai::generate_text(
+        INSTRUCTIONS,
+        text,
+        0.2,
+        TIME_BUDGET,
+        &AtomicBool::new(false),
+    );
+    #[cfg(not(target_arch = "x86_64"))]
     let outcome = crate::apple_intelligence::generate_text(INSTRUCTIONS, text, 0.2, TIME_BUDGET);
     let latency_ms = started.elapsed().as_millis() as u64;
     match outcome {
@@ -195,8 +208,16 @@ pub(crate) fn fallback(
 /// the cached one, so an unavailable Mac costs this stage no wait at all.
 #[cfg(target_os = "macos")]
 pub(crate) fn unavailable_reason() -> Option<&'static str> {
-    let availability = crate::apple_intelligence::availability();
-    (!availability.is_available()).then(|| availability.description())
+    #[cfg(target_arch = "x86_64")]
+    {
+        return (!crate::dictation::local_ai::configured())
+            .then_some("Set HEX_LOCAL_AI_ENDPOINT for an on-device llama.cpp or Ollama server");
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let availability = crate::apple_intelligence::availability();
+        (!availability.is_available()).then(|| availability.description())
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
