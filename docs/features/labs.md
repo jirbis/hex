@@ -1280,6 +1280,15 @@ exactly as before. Checks: `only_english_dictations_apply_the_filter`,
 dictation with the toggle on; the Labs page goldens need regenerating on
 Linux with the new row.
 
+Apple Intelligence-based Labs features **Clean up with Apple Intelligence** and
+**Neutral voice** require an **Apple silicon Mac (M1 or later)**, **macOS 26+**,
+and enabled/ready Apple Intelligence. Both Labs cards explicitly show the
+hardware and OS requirement, even when the availability API currently reports
+only an unsupported OS version, and additionally show the runtime reason when
+unavailable. This restriction belongs to Apple's Foundation Models integration,
+**not** Hex's speech transcription, file import or `hex transcribe` CLI. The
+experimental Intel local-LLM alternative (#4) is separate from Apple Intelligence.
+
 Clean up with Apple Intelligence (`clean-up-apple-intelligence`, macOS, off
 by default): while on, each macOS dictation that its mode does not rewrite
 gets one short on-device pass with Apple Intelligence, after the speech Labs
