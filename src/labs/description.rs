@@ -59,7 +59,11 @@ impl Feature {
                 "Remove filler words such as um and uh from dictations, without an AI model"
             }
             Self::CleanUpWithAppleIntelligence => {
-                "Fix clearly misheard words and things you correct out loud in each dictation, using Apple Intelligence on this Mac"
+                if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+                    "Fix misheard words using a local llama.cpp (Vulkan GPU) or Ollama server, without Apple Intelligence"
+                } else {
+                    "Fix clearly misheard words and things you correct out loud in each dictation, using Apple Intelligence on this Mac"
+                }
             }
             Self::NeutralVoice => {
                 "Rewrite dictations in chosen modes into plain, neutral wording on this Mac, so your writing style doesn't show"
