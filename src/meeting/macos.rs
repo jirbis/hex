@@ -155,8 +155,11 @@ pub(super) fn open_system_audio(
     ScreenCaptureSource::start(sink).map(|source| Box::new(source) as Box<dyn LiveSource>)
 }
 
-/// Whole-system output, minus Hex's own sounds, through a private Core Audio
-/// process tap on a private aggregate device. It has no display dependency.
+/// System output, minus Hex's own sounds, through a private Core Audio
+/// process tap on a private aggregate device. By default it captures all
+/// outputs; a device UID narrows the tap to stream 0 of that output.
+/// This works on both Intel and Apple Silicon (macOS 14.2+) and does not
+/// depend on an available display.
 struct ProcessTapSource {
     tap: AudioObjectID,
     aggregate: AudioObjectID,
@@ -175,16 +178,34 @@ unsafe impl Send for ProcessTapSource {}
 
 impl ProcessTapSource {
     fn start() -> Result<Self> {
+        Self::start_for_output(None)
+    }
+
+    /// Target a single Core Audio output device when a UID is supplied.
+    /// The default meeting recorder continues using the all-output tap.
+    /// This is the capture primitive for the opt-in dictation input picker.
+    #[allow(dead_code)]
+    fn start_for_output(output_uid: Option<&str>) -> Result<Self> {
         let excluded = own_process_object()
             .map(|object| vec![NSNumber::new_u32(object)])
             .unwrap_or_default();
         let excluded = NSArray::from_retained_slice(&excluded);
-        // SAFETY: Standard CATapDescription initialization and setters.
+        // SAFETY: Both CATapDescription initializers retain their arguments.
+        // The device-scoped variant taps stream 0 of a specific output; the
+        // global variant retains the existing all-output Meetings behavior.
         let description = unsafe {
-            let description = CATapDescription::initMonoGlobalTapButExcludeProcesses(
-                CATapDescription::alloc(),
-                &excluded,
-            );
+            let description = match output_uid {
+                Some(uid) => CATapDescription::initExcludingProcesses_andDeviceUID_withStream(
+                    CATapDescription::alloc(),
+                    &excluded,
+                    &NSString::from_str(uid),
+                    0,
+                ),
+                None => CATapDescription::initMonoGlobalTapButExcludeProcesses(
+                    CATapDescription::alloc(),
+                    &excluded,
+                ),
+            };
             description.setName(&NSString::from_str("Hex meeting system audio"));
             description.setPrivate(true);
             description.setMuteBehavior(CATapMuteBehavior::Unmuted);
