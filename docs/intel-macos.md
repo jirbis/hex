@@ -42,6 +42,83 @@ HEX_TEST_BUILD=1 scripts/build-app.sh
 # App: target/app/Hex Test.app
 ```
 
+## Labs: local text AI on Intel (experimental)
+
+This fork adds a **separate text-processing path** for Intel macOS. Apple
+Silicon continues to use Apple Intelligence as before. On Intel, these
+existing Labs cards now use an explicitly configured **loopback** LLM:
+
+- **Clean up with local AI:** switch it on in Settings > Labs. Only dictations
+  without a mode OpenCode rewrite are cleaned. The existing numerical,
+  negation and content guards still apply; a failed or overly creative rewrite
+  pastes the original corrected transcript.
+- **Neutral voice:** turn it on in Labs **and** for the desired mode in the
+  Modes editor. It replaces the mode's OpenCode rewrite and cleanup, then
+  runs configured transformations as before.
+
+All switches are off by default. Hex never starts or downloads an LLM or
+sends text to a non-loopback address. Redirects are disabled. The response
+is capped at 256 KiB. Cleanup has a 6-second budget; neutral voice has 10
+seconds on Intel, with fallbacks. The code paths on Apple Silicon are untouched.
+
+### Recommended: llama.cpp Vulkan/MoltenVK on the Radeon GPU
+
+The **measured** fast path from November 10 was *llama.cpp with Vulkan*,
+not stock Ollama Metal. Qwen2.5 3B Q4_K_M yielded roughly 47 generated
+tokens/s using all Vulkan GPU layers, versus ~14 tokens/s on the i9 CPU.
+Use the working Vulkan/MoltenVK build and GGUF from that experiment, then
+start its OpenAI-compatible server on **127.0.0.1 only**, e.g.:
+
+```sh
+# Substitute the existing Vulkan-enabled llama-server binary and GGUF path.
+./llama-server --model /absolute/path/to/qwen2.5-3b-q4_k_m.gguf \
+  --host 127.0.0.1 --port 8080 --n-gpu-layers 99 --ctx-size 4096
+
+# In another terminal, make the settings available to Finder-launched Hex.
+launchctl setenv HEX_LOCAL_AI_ENDPOINT http://127.0.0.1:8080/v1/chat/completions
+launchctl setenv HEX_LOCAL_AI_MODEL local
+open -a "Hex Test"
+```
+
+The `local` model name is an alias for the single loaded llama.cpp model,
+not an Ollama catalog entry. The model is loaded into the server, not Hex.
+Check the server's GPU logs; no GPU speedup is inferred merely from selecting
+this URL.
+
+### Alternative: Ollama on localhost
+
+```sh
+ollama pull qwen2.5:3b
+ollama serve  # only if the Ollama service is not already running
+launchctl setenv HEX_LOCAL_AI_ENDPOINT http://127.0.0.1:11434/api/chat
+launchctl setenv HEX_LOCAL_AI_MODEL qwen2.5:3b
+open -a "Hex Test"
+```
+
+The Ollama option uses its native non-streaming `/api/chat` API, rather than
+its OpenAI compatibility layer. GPU performance is **not proven** for this
+Ollama setup on the Radeon; the ~3.3x result applies to the tested
+llama.cpp Vulkan server.
+
+Restart Hex after changing the launch environment. To opt out, disable
+the Labs switches and clear the environment:
+
+```sh
+launchctl unsetenv HEX_LOCAL_AI_ENDPOINT
+launchctl unsetenv HEX_LOCAL_AI_MODEL
+```
+
+If the server is absent, times out, returns invalid JSON, rewrites too
+aggressively, or gives an empty answer, Hex pastes the original text.
+The local LLM is **only for post-processing text**; the speech recognizer
+stays CPU-first on Intel, because its Radeon Metal path was unreliable.
+
+**Validation pending:** Compile this fork branch with the Intel CI workflow;
+then test on the physical Mac: Russian/German, short/long dictations,
+negative words and numbers, GPU server down, server timeout, and the two
+separate Labs toggles. This feature has not yet been validated end-to-end
+on the physical Radeon 5500M.
+
 ## CPU vs AMD GPU
 
 On **Intel macOS only**, the Parakeet/transcribe.cpp model loader defaults to
