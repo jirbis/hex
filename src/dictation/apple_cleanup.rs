@@ -19,7 +19,11 @@ use std::time::Instant;
 use crate::dictation::processor::ProcessingObservation;
 
 /// How long the model gets before the corrected transcript is pasted.
-pub(crate) const TIME_BUDGET: Duration = Duration::from_secs(2);
+pub(crate) const TIME_BUDGET: Duration = if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+    Duration::from_secs(6)
+} else {
+    Duration::from_secs(2)
+};
 
 /// The stage's name in History and the live log.
 const PROFILE: &str = if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
