@@ -494,6 +494,21 @@ pub(super) fn reveal_card(ui: &mut Ui, lab: Lab, tx: &mut Tx) {
     tx.focus(row_key(lab), true);
 }
 
+/// Show the Foundation Models hardware and OS requirements on both Apple
+/// Intelligence Labs cards, even if this Mac currently reports only an OS error.
+/// A newer macOS release cannot make an Intel Mac eligible.
+fn apple_intelligence_lab_note(availability: super::platform::NotesAvailability) -> String {
+    let os_requirement = tr("Requires macOS 26 or later");
+    let mut note = format!("Apple silicon (M1+) · {os_requirement}");
+    if let Some(reason) = super::platform_settings::clean_up_note(availability)
+        && reason != os_requirement
+    {
+        note.push_str(" · ");
+        note.push_str(&reason);
+    }
+    note
+}
+
 fn rows(ui: &Ui) -> Vec<Row> {
     let caps = ui.platform.caps;
     let settings = &ui.settings;
@@ -693,7 +708,7 @@ fn rows(ui: &Ui) -> Vec<Row> {
             Some(_) => clean_up,
             None => Row {
                 locked: !ui.platform.notes.is_available() && !clean_up.on,
-                note: super::platform_settings::clean_up_note(ui.platform.notes),
+                note: Some(apple_intelligence_lab_note(ui.platform.notes)),
                 ..clean_up
             },
         });
@@ -704,7 +719,7 @@ fn rows(ui: &Ui) -> Vec<Row> {
             Some(_) => neutral,
             None => Row {
                 locked: !ui.platform.notes.is_available() && !neutral.on,
-                note: super::platform_settings::clean_up_note(ui.platform.notes),
+                note: Some(apple_intelligence_lab_note(ui.platform.notes)),
                 ..neutral
             },
         });
