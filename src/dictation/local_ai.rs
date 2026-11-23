@@ -9,7 +9,7 @@ use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use color_eyre::eyre::{Result, bail, eyre, WrapErr};
+use color_eyre::eyre::{Result, WrapErr, bail, eyre};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -39,8 +39,9 @@ pub(crate) fn configured() -> bool {
 
 impl Config {
     fn read() -> Result<Self> {
-        let endpoint = std::env::var("HEX_LOCAL_AI_ENDPOINT")
-            .map_err(|_| eyre!("set HEX_LOCAL_AI_ENDPOINT for a local llama.cpp or Ollama server"))?;
+        let endpoint = std::env::var("HEX_LOCAL_AI_ENDPOINT").map_err(|_| {
+            eyre!("set HEX_LOCAL_AI_ENDPOINT for a local llama.cpp or Ollama server")
+        })?;
         let endpoint = endpoint.trim();
         let url = url::Url::parse(endpoint).wrap_err("invalid HEX_LOCAL_AI_ENDPOINT")?;
         if url.scheme() != "http"
@@ -50,7 +51,9 @@ impl Config {
             || url.fragment().is_some()
             || !matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
         {
-            bail!("HEX_LOCAL_AI_ENDPOINT must be an HTTP loopback URL with no credentials or query");
+            bail!(
+                "HEX_LOCAL_AI_ENDPOINT must be an HTTP loopback URL with no credentials or query"
+            );
         }
         let api = match url.path() {
             "/api/chat" => Api::Ollama,
@@ -161,18 +164,22 @@ pub(crate) fn generate_text(
         bail!("local model request cancelled");
     }
     let text = match config.api {
-        Api::Ollama => serde_json::from_slice::<OllamaReply>(&answer)
-            .wrap_err("invalid Ollama response")?
-            .message
-            .content,
-        Api::OpenAi => serde_json::from_slice::<OpenAiReply>(&answer)
-            .wrap_err("invalid llama.cpp response")?
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| eyre!("local AI server returned no choices"))?
-            .message
-            .content,
+        Api::Ollama => {
+            serde_json::from_slice::<OllamaReply>(&answer)
+                .wrap_err("invalid Ollama response")?
+                .message
+                .content
+        }
+        Api::OpenAi => {
+            serde_json::from_slice::<OpenAiReply>(&answer)
+                .wrap_err("invalid llama.cpp response")?
+                .choices
+                .into_iter()
+                .next()
+                .ok_or_else(|| eyre!("local AI server returned no choices"))?
+                .message
+                .content
+        }
     };
     if text.trim().is_empty() {
         bail!("local AI server returned empty text");
