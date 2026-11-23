@@ -22,7 +22,11 @@ use crate::dictation::apple_cleanup::{fallback, observation, tidy};
 use crate::dictation::processor::{Processed, ProcessingObservation, Source};
 
 /// How long the model gets before the corrected transcript is pasted.
-pub(crate) const TIME_BUDGET: Duration = Duration::from_secs(4);
+pub(crate) const TIME_BUDGET: Duration = if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+    Duration::from_secs(10)
+} else {
+    Duration::from_secs(4)
+};
 
 /// A little warmer than the cleanup's 0.2, so two dictations of the same
 /// words don't come back with identical wording.
