@@ -3336,6 +3336,24 @@ fn live_typing_says_when_the_desktop_cannot_use_it() {
     assert!(rt.state.settings.labs.live_typing);
 }
 
+/// Both Apple Intelligence Labs cards explicitly state the Apple silicon and
+/// macOS requirements, even if the availability API reports only an OS error.
+#[test]
+fn apple_intelligence_labs_explain_hardware_and_os_requirements() {
+    use crate::rune_ui::platform::NotesAvailability;
+    for availability in [NotesAvailability::UnsupportedSystem, NotesAvailability::Available] {
+        let mut rt = runtime("mac-labs", true, (980.0, 2800.0));
+        rt.state.platform.notes = availability;
+        refresh(&mut rt);
+        open_labs(&mut rt);
+        let notes = texts(&rt)
+            .iter()
+            .filter(|text| text.contains("Apple silicon (M1+)") && text.contains("macOS 26"))
+            .count();
+        assert!(notes >= 2, "both Labs cards should show the platform requirement");
+    }
+}
+
 /// Labs › Clean up with Apple Intelligence says why Apple Intelligence can't
 /// run here, locks its switch while it is off, and still turns off once on.
 #[test]
