@@ -36,7 +36,7 @@ impl Feature {
                 } else {
                     "Clean up with Apple Intelligence"
                 }
-            },
+            }
             Self::NeutralVoice => "Neutral voice",
             Self::SecondDictationShortcut => "Second dictation shortcut",
             Self::TerminalPasteShortcut => "Terminal paste shortcut",
