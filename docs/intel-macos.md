@@ -75,17 +75,44 @@ Radeon:
 | llama.cpp Metal, all layers | fails (GPU timeout / hang) | – |
 | **llama.cpp Vulkan, all layers** (Nov 10) | Radeon | **~47** |
 | **OllamaGPU 0.40.10, Vulkan** (Nov 24) | Radeon | **~46** |
+| ollama-vulkan-macos (Momin010), *their* 5500M | Radeon | 45.7 (Llama 3.2 3B)¹ |
+
+¹ Published by the project (`vulkan-macos/PERFORMANCE.md`; the README's more
+conservative table shows 36 tok/s against 38 for llama.cpp on the same run).
+Not re-measured on the test Mac. All three Radeon rows are llama.cpp's Vulkan
+backend underneath, so they share one ceiling; the project's report puts it
+at memory bandwidth (~164 GB/s achievable of 192 GB/s rated).
 
 Offload all layers or none: partial offload (4 or 12 layers) is no faster
-than the CPU. Stock Ollama and the `Momin010/ollama-vulkan-macos` patch
-script are **not** what was measured here.
+than the CPU.
 
-#### Path A: OllamaGPU (Ollama with a Vulkan backend)
+#### Path A (recommended): Ollama with Vulkan
 
+**Primary:** [`Momin010/ollama-vulkan-macos`](https://github.com/Momin010/ollama-vulkan-macos),
+a maintained Ollama fork for Intel Macs with AMD GPUs (CI, upstream sync,
+self-contained MoltenVK). Its installer patches an existing official
+`/Applications/Ollama.app` in place, keeps the official binary for
+`--uninstall`, and adds a LaunchAgent that re-applies the build after
+Ollama's auto-update (otherwise the update silently returns Ollama to the CPU).
+Read the script before running it:
+
+```sh
+curl -fsSLo ollama-vulkan-install.sh \
+  https://raw.githubusercontent.com/Momin010/ollama-vulkan-macos/vulkan-darwin/vulkan-macos/install.sh
+less ollama-vulkan-install.sh
+bash ollama-vulkan-install.sh            # needs the official Ollama.app installed
+grep 'inference compute' ~/.ollama/logs/server.log | tail -1   # library=Vulkan, AMD Radeon
+```
+
+It forces flash attention off (on MoltenVK it drops generation below
+1 tok/s) and ignores the Intel iGPU.
+
+**Alternative build (what the test Mac runs):**
 [`baksogen/ollama_GPU`](https://github.com/baksogen/ollama_GPU) release
-`v0.40.10` ships `OllamaGPU.app`: Ollama with `libggml-vulkan.so` and its own
-`libMoltenVK.dylib`, so no Homebrew Vulkan packages are needed. It is a
-third-party build, not signed or notarized by Ollama.
+`v0.40.10` ships a complete `OllamaGPU.app` (newer Ollama base, bundled
+`libggml-vulkan.so` and `libMoltenVK.dylib`), but has no visible CI or update
+path and is not signed or notarized. Do not run the Momin010 installer over
+it: that script expects the official app. To install it instead:
 
 ```sh
 # After downloading OllamaGPU.app.zip from that release:
@@ -114,7 +141,10 @@ ollama run qwen2.5:3b --verbose "Write 200 words about a lighthouse."
 # eval rate: ~45 tokens/s on the Radeon; ~14 or less means CPU
 ```
 
-#### Path B: llama.cpp built with Vulkan
+#### Path B (fallback): llama.cpp built with Vulkan
+
+Same speed as Path A; no dependency on a third-party Ollama build. Hex
+needs no Ollama for this path.
 
 ```sh
 brew install molten-vk vulkan-loader vulkan-headers glslang shaderc
