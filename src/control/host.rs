@@ -213,6 +213,9 @@ fn command(host: &dyn Host, command: ControlCommand) -> ControlReply {
             host.show_window(pane)
                 .map(|()| ControlReply::done("Opened the window")),
         ),
+        ControlCommand::WindowTranscribeFile { .. } => unsupported(
+            "The Labs file queue is only exposed to CLI on macOS; use `hex transcribe <file>` here",
+        ),
         ControlCommand::WindowHide => {
             if host.hide_window() {
                 ControlReply::done("Closed the window")
