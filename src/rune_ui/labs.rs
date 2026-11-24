@@ -494,6 +494,21 @@ pub(super) fn reveal_card(ui: &mut Ui, lab: Lab, tx: &mut Tx) {
     tx.focus(row_key(lab), true);
 }
 
+/// Name the configured Intel local model, or why it is unusable, without making Labs
+/// look like Apple Intelligence is required on Intel Macs.
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn intel_local_ai_note(ready_note: &'static str) -> String {
+    match crate::dictation::local_ai::configuration_status() {
+        Ok(server) => format!("Local AI ready: {server}. {}", tr(ready_note)),
+        Err(reason) => format!("Local AI unavailable: {reason}"),
+    }
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+fn intel_local_ai_note(ready_note: &'static str) -> String {
+    tr(ready_note).to_owned()
+}
+
 fn rows(ui: &Ui) -> Vec<Row> {
     let caps = ui.platform.caps;
     let settings = &ui.settings;
@@ -689,25 +704,45 @@ fn rows(ui: &Ui) -> Vec<Row> {
     // the row it built (off, disabled, saying why), else the card says why.
     if caps.os == super::platform::Os::Macos {
         let clean_up = row(Feature::CleanUpWithAppleIntelligence, Some(&SPARKLES));
-        rows.push(match Feature::CleanUpWithAppleIntelligence.managed() {
-            Some(_) => clean_up,
-            None => Row {
-                locked: !ui.platform.notes.is_available() && !clean_up.on,
-                note: super::platform_settings::clean_up_note(ui.platform.notes),
-                ..clean_up
-            },
-        });
+        if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+            rows.push(match Feature::CleanUpWithAppleIntelligence.managed() {
+                Some(_) => clean_up,
+                None => Row {
+                    note: Some(intel_local_ai_note("Text goes only to this loopback llama.cpp or Ollama server, set by HEX_LOCAL_AI_ENDPOINT and HEX_LOCAL_AI_MODEL.")),
+                    ..clean_up
+                },
+            });
+        } else {
+            rows.push(match Feature::CleanUpWithAppleIntelligence.managed() {
+                Some(_) => clean_up,
+                None => Row {
+                    locked: !ui.platform.notes.is_available() && !clean_up.on,
+                    note: super::platform_settings::clean_up_note(ui.platform.notes),
+                    ..clean_up
+                },
+            });
+        }
         // The same local model, in the modes that opt in, instead of the
         // OpenCode rewrite.
         let neutral = row(Feature::NeutralVoice, Some(&SPARKLES));
-        rows.push(match Feature::NeutralVoice.managed() {
-            Some(_) => neutral,
-            None => Row {
-                locked: !ui.platform.notes.is_available() && !neutral.on,
-                note: super::platform_settings::clean_up_note(ui.platform.notes),
-                ..neutral
-            },
-        });
+        if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+            rows.push(match Feature::NeutralVoice.managed() {
+                Some(_) => neutral,
+                None => Row {
+                    note: Some(intel_local_ai_note("Uses the same local server as Clean up with local AI. Enable Neutral voice in the chosen mode too.")),
+                    ..neutral
+                },
+            });
+        } else {
+            rows.push(match Feature::NeutralVoice.managed() {
+                Some(_) => neutral,
+                None => Row {
+                    locked: !ui.platform.notes.is_available() && !neutral.on,
+                    note: super::platform_settings::clean_up_note(ui.platform.notes),
+                    ..neutral
+                },
+            });
+        }
     }
     rows.push(row(Feature::HistoryStats, None));
     rows.push(row(Feature::KeepRecordings, None));

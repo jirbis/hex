@@ -15,6 +15,8 @@ pub(crate) mod diagnostics;
 pub(crate) mod filler_words;
 pub(crate) mod indicator;
 pub(crate) mod live_text;
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+pub(crate) mod local_ai;
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) mod modes;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]

@@ -30,7 +30,13 @@ impl Feature {
             Self::ReturnToApp => "Return to app",
             Self::SpokenFormatting => "Spoken formatting",
             Self::FillerWords => "Remove filler words",
-            Self::CleanUpWithAppleIntelligence => "Clean up with Apple Intelligence",
+            Self::CleanUpWithAppleIntelligence => {
+                if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+                    "Clean up with local AI"
+                } else {
+                    "Clean up with Apple Intelligence"
+                }
+            }
             Self::NeutralVoice => "Neutral voice",
             Self::SecondDictationShortcut => "Second dictation shortcut",
             Self::TerminalPasteShortcut => "Terminal paste shortcut",

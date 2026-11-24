@@ -19,10 +19,18 @@ use std::time::Instant;
 use crate::dictation::processor::ProcessingObservation;
 
 /// How long the model gets before the corrected transcript is pasted.
-pub(crate) const TIME_BUDGET: Duration = Duration::from_secs(2);
+pub(crate) const TIME_BUDGET: Duration = if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+    Duration::from_secs(6)
+} else {
+    Duration::from_secs(2)
+};
 
 /// The stage's name in History and the live log.
-const PROFILE: &str = "Clean up with Apple Intelligence";
+const PROFILE: &str = if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+    "Clean up with local AI"
+} else {
+    "Clean up with Apple Intelligence"
+};
 
 /// The iOS cleaner's instructions, unchanged: fix misheard words and spoken
 /// self-corrections, keep everything else, and treat the transcript as
@@ -94,20 +102,24 @@ pub(crate) fn stage(
         // A Mac without Apple Intelligence, or with it off, waits for nothing:
         // the dictation goes on exactly as it does with the lab off.
         tracing::info!(
-            reason = reason.unwrap_or_default(),
-            "dictation cleanup skipped: Apple Intelligence is unavailable"
+            reason = reason.as_deref().unwrap_or_default(),
+            "dictation cleanup skipped: text model unavailable"
         );
     }
-    outcome(text, step)
+    outcome(text, step, cancelled)
 }
 
 /// What a decision hands back: the words to paste, and the observation for
 /// History and the live log. Pure, so every OS tests the fallbacks without a
 /// model.
-fn outcome(text: &str, step: Plan) -> (String, Option<ProcessingObservation>) {
+fn outcome(
+    text: &str,
+    step: Plan,
+    cancelled: &AtomicBool,
+) -> (String, Option<ProcessingObservation>) {
     match step {
         Plan::Skip | Plan::Unavailable => (text.to_owned(), None),
-        Plan::Clean => clean(text),
+        Plan::Clean => clean(text, cancelled),
     }
 }
 
@@ -137,8 +149,12 @@ pub(crate) fn observation(
 
 /// One on-device pass, with the time budget the bridge enforces.
 #[cfg(target_os = "macos")]
-fn clean(text: &str) -> (String, Option<ProcessingObservation>) {
+fn clean(text: &str, cancelled: &AtomicBool) -> (String, Option<ProcessingObservation>) {
     let started = Instant::now();
+    #[cfg(target_arch = "x86_64")]
+    let outcome =
+        crate::dictation::local_ai::generate_text(INSTRUCTIONS, text, 0.2, TIME_BUDGET, cancelled);
+    #[cfg(not(target_arch = "x86_64"))]
     let outcome = crate::apple_intelligence::generate_text(INSTRUCTIONS, text, 0.2, TIME_BUDGET);
     let latency_ms = started.elapsed().as_millis() as u64;
     match outcome {
@@ -173,7 +189,7 @@ fn clean(text: &str) -> (String, Option<ProcessingObservation>) {
 
 /// Every other OS has no Apple Intelligence, so [`plan`] never asks for a pass.
 #[cfg(not(target_os = "macos"))]
-fn clean(text: &str) -> (String, Option<ProcessingObservation>) {
+fn clean(text: &str, _cancelled: &AtomicBool) -> (String, Option<ProcessingObservation>) {
     (text.to_owned(), None)
 }
 
@@ -194,14 +210,21 @@ pub(crate) fn fallback(
 /// Why Apple Intelligence can't run now, or `None` when it can. The answer is
 /// the cached one, so an unavailable Mac costs this stage no wait at all.
 #[cfg(target_os = "macos")]
-pub(crate) fn unavailable_reason() -> Option<&'static str> {
-    let availability = crate::apple_intelligence::availability();
-    (!availability.is_available()).then(|| availability.description())
+pub(crate) fn unavailable_reason() -> Option<String> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        crate::dictation::local_ai::configuration_problem()
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let availability = crate::apple_intelligence::availability();
+        (!availability.is_available()).then(|| availability.description().to_owned())
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn unavailable_reason() -> Option<&'static str> {
-    Some("Apple Intelligence needs a Mac")
+pub(crate) fn unavailable_reason() -> Option<String> {
+    Some("Apple Intelligence needs a Mac".to_owned())
 }
 
 /// The model's answer, ready to judge: the transcript's own leading and
@@ -515,7 +538,7 @@ mod tests {
     #[test]
     fn a_stage_that_cannot_run_changes_nothing() {
         for step in [Plan::Skip, Plan::Unavailable] {
-            let (text, observation) = outcome("ship it", step);
+            let (text, observation) = outcome("ship it", step, &AtomicBool::new(false));
             assert_eq!(text, "ship it");
             assert!(observation.is_none(), "{step:?}");
         }

@@ -3338,6 +3338,7 @@ fn live_typing_says_when_the_desktop_cannot_use_it() {
 
 /// Labs › Clean up with Apple Intelligence says why Apple Intelligence can't
 /// run here, locks its switch while it is off, and still turns off once on.
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 #[test]
 fn clean_up_says_why_apple_intelligence_cannot_run() {
     use crate::rune_ui::platform::NotesAvailability;
@@ -3381,6 +3382,7 @@ fn clean_up_says_why_apple_intelligence_cannot_run() {
 
 /// Labs › Neutral voice says why Apple Intelligence can't run here, locks its
 /// switch while it is off, and still turns off once on.
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 #[test]
 fn neutral_voice_says_why_apple_intelligence_cannot_run() {
     use crate::rune_ui::platform::NotesAvailability;
@@ -3414,6 +3416,28 @@ fn neutral_voice_says_why_apple_intelligence_cannot_run() {
     refresh(&mut rt);
     tap(&mut rt, "lab-neutral-voice");
     assert!(rt.state.settings.labs.neutral_voice);
+}
+
+/// The Intel-specific notes must not override the managed Labs lock.
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+#[test]
+fn intel_local_ai_cards_honor_managed_labs_lock() {
+    use crate::policy::{Lock, Policy};
+    let _locked = Policy::forced_for_test(Policy::default().with(Lock::Labs));
+    let mut rt = runtime("mac-labs", true, (980.0, 2800.0));
+    open_labs(&mut rt);
+    assert!(rt.find("lab-clean-up").is_some());
+    assert!(rt.find("lab-neutral-voice").is_some());
+    tap(&mut rt, "lab-clean-up");
+    tap(&mut rt, "lab-neutral-voice");
+    assert!(!rt.state.settings.labs.clean_up_with_apple_intelligence);
+    assert!(!rt.state.settings.labs.neutral_voice);
+    assert!(
+        texts(&rt)
+            .iter()
+            .any(|text| text == "Managed by your organization"),
+        "managed policy must win over local server setup notes"
+    );
 }
 
 /// An organization's lock keeps the cleanup card off, disabled, and saying

@@ -42,6 +42,187 @@ HEX_TEST_BUILD=1 scripts/build-app.sh
 # App: target/app/Hex Test.app
 ```
 
+## Labs: local text AI on Intel (experimental)
+
+This fork adds a **separate text-processing path** for Intel macOS. Apple
+Silicon continues to use Apple Intelligence as before. On Intel, these
+existing Labs cards now use an explicitly configured **loopback** LLM:
+
+- **Clean up with local AI:** switch it on in Settings > Labs. Only dictations
+  without a mode OpenCode rewrite are cleaned. The existing numerical,
+  negation and content guards still apply; a failed or overly creative rewrite
+  pastes the original corrected transcript.
+- **Neutral voice:** turn it on in Labs **and** for the desired mode in the
+  Modes editor. It replaces the mode's OpenCode rewrite and cleanup, then
+  runs configured transformations as before.
+
+All switches are off by default. Hex never starts or downloads an LLM or
+sends text to a non-loopback address. Redirects are disabled. The response
+is capped at 256 KiB. Cleanup has a 6-second budget; neutral voice has 10
+seconds on Intel, with fallbacks. The code paths on Apple Silicon are untouched.
+
+### Local LLM on the Radeon GPU: two verified paths
+
+Hex only calls a loopback server; which device that server uses is up to the
+server. On the test Mac (MacBook Pro 16" 2019, i9-9880H, Radeon Pro 5500M
+8 GB, macOS 15.1) **only Vulkan through MoltenVK** puts the model on the
+Radeon:
+
+| Server | Device | Qwen2.5 3B Q4_K_M, generated tok/s |
+|---|---|---|
+| Stock Ollama (Homebrew 0.6.3) | CPU (`library=cpu`) | ~5–14 |
+| llama.cpp CPU | i9 CPU | ~14 |
+| llama.cpp Metal, all layers | fails (GPU timeout / hang) | – |
+| **ollama-vulkan-macos (Momin010) v0.32.3-vulkan.1** | Radeon | **45.4–45.9** |
+| **OllamaGPU 0.40.10** | Radeon | **44.8–46.7** |
+| **llama.cpp Vulkan, all layers** | Radeon | **45.9–47.8** |
+
+Radeon rows: measured on the test Mac on 2026-11-25, back to back on the same
+`qwen2.5:3b` Q4_K_M GGUF, 200 generated tokens, median of 3 runs per round,
+two rounds per server (range shown). For both Ollama builds the model was
+fully in VRAM (`size_vram == size`, 2.07 GiB). The three are **equal within
+noise**: all are llama.cpp's Vulkan backend underneath and share one ceiling,
+which the Momin010 report attributes to memory bandwidth (~164 GB/s
+achievable of 192 GB/s rated). Its own published figure, 45.7 tok/s on
+Llama 3.2 3B, matches.
+
+**Thermals dominate any comparison on this laptop.** After a few minutes of
+generation macOS throttles (`pmset -g therm` shows `CPU_Speed_Limit` falling
+to 22–35) and the GPU slows with it: the same servers then measured 14.7–34.5
+tok/s, so whichever ran first "won". Benchmark only when `CPU_Speed_Limit`
+is 100 and let it recover between runs.
+
+Offload all layers or none: partial offload (4 or 12 layers) is no faster
+than the CPU.
+
+#### Path A (recommended): Ollama with Vulkan
+
+**Primary:** [`Momin010/ollama-vulkan-macos`](https://github.com/Momin010/ollama-vulkan-macos),
+a maintained Ollama fork for Intel Macs with AMD GPUs (CI, upstream sync,
+self-contained MoltenVK). Its installer patches an existing official
+`/Applications/Ollama.app` in place, keeps the official binary for
+`--uninstall`, and adds a LaunchAgent that re-applies the build after
+Ollama's auto-update (otherwise the update silently returns Ollama to the CPU).
+Read the script before running it:
+
+```sh
+curl -fsSLo ollama-vulkan-install.sh \
+  https://raw.githubusercontent.com/Momin010/ollama-vulkan-macos/vulkan-darwin/vulkan-macos/install.sh
+less ollama-vulkan-install.sh
+bash ollama-vulkan-install.sh            # needs the official Ollama.app installed
+grep 'inference compute' ~/.ollama/logs/server.log | tail -1   # library=Vulkan, AMD Radeon
+```
+
+It forces flash attention off (on MoltenVK it drops generation below
+1 tok/s) and ignores the Intel iGPU.
+
+**Alternative build (what the test Mac runs):**
+[`baksogen/ollama_GPU`](https://github.com/baksogen/ollama_GPU) release
+`v0.40.10` ships a complete `OllamaGPU.app` (newer Ollama base, bundled
+`libggml-vulkan.so` and `libMoltenVK.dylib`), but has no visible CI or update
+path and is not signed or notarized. Do not run the Momin010 installer over
+it: that script expects the official app. To install it instead:
+
+```sh
+# After downloading OllamaGPU.app.zip from that release:
+ditto -x -k ~/Downloads/OllamaGPU.app.zip /tmp/ollamagpu
+mv /tmp/ollamagpu/OllamaGPU.app /Applications/Ollama.app
+xattr -dr com.apple.quarantine /Applications/Ollama.app
+open /Applications/Ollama.app         # serves on 127.0.0.1:11434
+ollama --version                      # 0.40.10-24-gdc3d660
+ollama pull qwen2.5:3b
+
+launchctl setenv HEX_LOCAL_AI_ENDPOINT http://127.0.0.1:11434/api/chat
+launchctl setenv HEX_LOCAL_AI_MODEL qwen2.5:3b
+```
+
+On first launch the app points `/usr/local/bin/ollama` at itself. A Homebrew
+`ollama` may still be installed; `brew link ollama` or `brew upgrade ollama`
+puts the CPU-only binary back on the `PATH`, and a server started with
+`ollama serve` from that binary runs on the CPU. Quit the app before starting
+another server on port 11434.
+
+Check that the model really sits on the GPU (load it once first):
+
+```sh
+curl -s localhost:11434/api/ps   # size_vram must equal size
+ollama run qwen2.5:3b --verbose "Write 200 words about a lighthouse."
+# eval rate: ~45 tokens/s on the Radeon; ~14 or less means CPU
+```
+
+#### Path B (fallback): llama.cpp built with Vulkan
+
+Same speed as Path A (measured above); no dependency on a third-party Ollama build. Hex
+needs no Ollama for this path.
+
+```sh
+brew install molten-vk vulkan-loader vulkan-headers glslang shaderc
+git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
+VULKAN_SDK=/usr/local cmake -B build-vulkan -DGGML_VULKAN=ON -DGGML_METAL=OFF \
+  -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF
+cmake --build build-vulkan -j8 --target llama-server llama-bench
+
+export VK_ICD_FILENAMES=/usr/local/etc/vulkan/icd.d/MoltenVK_icd.json
+build-vulkan/bin/llama-server --list-devices  # Vulkan0 = Radeon, Vulkan1 = UHD 630
+build-vulkan/bin/llama-server -m /absolute/path/to/qwen2.5-3b-q4_k_m.gguf \
+  -dev Vulkan0 -ngl 99 -fa off -c 4096 --host 127.0.0.1 --port 8080 -a local
+
+launchctl setenv HEX_LOCAL_AI_ENDPOINT http://127.0.0.1:8080/v1/chat/completions
+launchctl setenv HEX_LOCAL_AI_MODEL local
+```
+
+An Ollama-pulled model can be used directly: its GGUF is the largest blob
+under `~/.ollama/models/blobs/`. Pick `Vulkan0` explicitly; the Intel UHD 630
+(`Vulkan1`) is about ten times slower. Recent llama.cpp builds do not log
+the offloaded layer count at the default verbosity, so judge by speed: the
+server's `print_timing` line should show ~45 generated tokens/s, not ~14.
+`-a local` names the single loaded model, which is what
+`HEX_LOCAL_AI_MODEL=local` refers to.
+
+Both servers use Hex's native APIs: Ollama's non-streaming `/api/chat`, and
+llama.cpp's OpenAI-compatible `/v1/chat/completions`. Neither is started,
+installed, or managed by Hex.
+
+Restart Hex after changing the launch environment. To opt out, disable
+the Labs switches and clear the environment:
+
+```sh
+launchctl unsetenv HEX_LOCAL_AI_ENDPOINT
+launchctl unsetenv HEX_LOCAL_AI_MODEL
+```
+
+A cold Ollama model may take longer than the 6-second cleanup budget to
+load. Warm it with an empty, non-private prompt before dictating, and retain
+it in memory for a while:
+
+```sh
+curl --fail --silent --show-error http://127.0.0.1:11434/api/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"qwen2.5:3b","prompt":"","stream":false,"keep_alive":"30m"}'
+```
+
+The cleanup (6 s) and neutral voice (10 s) limits are **whole HTTP request
+budgets**, not separate timeouts per response phase. A real cancellation flag
+is passed through the processing pipeline; cancellation before sending prevents
+a request, and a cancellation during blocking HTTP is noticed after the server
+answers or the whole-request timeout expires. The HTTP client does not abort
+an in-flight socket immediately. The Labs cards say **Local AI ready:** with the
+model and server Hex read at launch (e.g. `qwen2.5:3b · 127.0.0.1:11434`), or
+**Local AI unavailable:** with the reason. "Ready" checks only the settings,
+not whether the server is running. Managed organization policy still
+overrides their switches.
+
+If the server is absent, times out, returns invalid JSON, rewrites too
+aggressively, or gives an empty answer, Hex pastes the original text.
+The local LLM is **only for post-processing text**; the speech recognizer
+stays CPU-first on Intel, because its Radeon Metal path was unreliable.
+
+**Validation pending:** Compile this fork branch with the Intel CI workflow;
+then test on the physical Mac: Russian/German, short/long dictations,
+negative words and numbers, GPU server down, server timeout, and the two
+separate Labs toggles. This feature has not yet been validated end-to-end
+on the physical Radeon 5500M.
+
 ## CPU vs AMD GPU
 
 On **Intel macOS only**, the Parakeet/transcribe.cpp model loader defaults to

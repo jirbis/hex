@@ -22,7 +22,11 @@ use crate::dictation::apple_cleanup::{fallback, observation, tidy};
 use crate::dictation::processor::{Processed, ProcessingObservation, Source};
 
 /// How long the model gets before the corrected transcript is pasted.
-pub(crate) const TIME_BUDGET: Duration = Duration::from_secs(4);
+pub(crate) const TIME_BUDGET: Duration = if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+    Duration::from_secs(10)
+} else {
+    Duration::from_secs(4)
+};
 
 /// A little warmer than the cleanup's 0.2, so two dictations of the same
 /// words don't come back with identical wording.
@@ -120,18 +124,27 @@ pub(crate) fn stage(
     }
     if let Some(reason) = unavailable_reason() {
         tracing::info!(
-            reason,
-            "dictation neutral voice skipped: Apple Intelligence is unavailable"
+            reason = %reason,
+            "dictation neutral voice skipped: text model unavailable"
         );
         return (text.to_owned(), None);
     }
-    rewrite(text)
+    rewrite(text, cancelled)
 }
 
 /// One on-device pass, with the time budget the bridge enforces.
 #[cfg(target_os = "macos")]
-fn rewrite(text: &str) -> (String, Option<ProcessingObservation>) {
+fn rewrite(text: &str, cancelled: &AtomicBool) -> (String, Option<ProcessingObservation>) {
     let started = Instant::now();
+    #[cfg(target_arch = "x86_64")]
+    let outcome = crate::dictation::local_ai::generate_text(
+        INSTRUCTIONS,
+        text,
+        TEMPERATURE,
+        TIME_BUDGET,
+        cancelled,
+    );
+    #[cfg(not(target_arch = "x86_64"))]
     let outcome =
         crate::apple_intelligence::generate_text(INSTRUCTIONS, text, TEMPERATURE, TIME_BUDGET);
     let latency_ms = started.elapsed().as_millis() as u64;
@@ -163,7 +176,7 @@ fn rewrite(text: &str) -> (String, Option<ProcessingObservation>) {
 /// Every other OS has no Apple Intelligence, so [`stage`] never asks for a
 /// pass.
 #[cfg(not(target_os = "macos"))]
-fn rewrite(text: &str) -> (String, Option<ProcessingObservation>) {
+fn rewrite(text: &str, _cancelled: &AtomicBool) -> (String, Option<ProcessingObservation>) {
     (text.to_owned(), None)
 }
 
