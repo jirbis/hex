@@ -65,7 +65,7 @@ const LAST_AUDIO_DIRECTORY: &str = "last-audio-directory";
 fn stored_audio_directory(file: &Path) -> Option<PathBuf> {
     std::fs::read_to_string(file)
         .ok()
-        .map(|saved| PathBuf::from(saved.trim_end_matches('\\n')))
+        .map(|saved| PathBuf::from(saved.trim_end_matches('\n')))
         .filter(|folder| folder.is_absolute() && folder.is_dir())
 }
 
