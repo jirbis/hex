@@ -64,6 +64,7 @@ hex
 │   └── check                      validate ~/.config/hex/hex.config.ts transformations
 ├── window
 │   ├── show [settings|models|modes|history|meetings]
+│   ├── transcribe-file <path>     macOS: queue a file in Labs › Transcribe dropped audio (alias transfer-file)
 │   ├── hide                       close the window; Hex stays in the menu bar
 │   └── story <story> [--variant V] [--play]  the playground (Labs): open a story
 ├── onboarding reset (alias restart)  replay the first run now; every OS (below)
@@ -203,6 +204,22 @@ it is installed), and only a file with no speech at all answers `no-speech`
 stderr only when it is a terminal. Ctrl-C ends the command and its service,
 printing nothing, with exit 130. It never pastes, records History, runs mode
 processing, or logs the transcript.
+
+On macOS, `hex window transcribe-file /absolute/path/recording.m4a` (alias
+`hex window transfer-file`) sends a file path to the **running Hex window's**
+Labs › Transcribe dropped audio queue. The Labs switch must be on; the CLI
+returns `feature-off` otherwise. The file must exist on that Mac and have a
+supported audio/video extension. The existing window worker transcribes it
+one at a time, shows progress and cancellation, and saves `<stem>.txt` next to
+the recording (or in Downloads when necessary). The CLI confirms only that
+it was **queued**, not that transcription succeeded; the window reports the
+final result. Unlike plain `hex transcribe <file>`, this command does not
+print the transcript to stdout. A missing running app returns `not-running`.
+
+The Labs file chooser and Meetings › Import audio now share the last folder
+successfully picked, persisted under Hex's application-support directory;
+cancelling a dialog leaves it unchanged. Hex Test keeps this separately under
+`~/Library/Application Support/hex-test/`, independent of the production Hex.
 
 `completions <shell>` (Labs › Tab completion for hex, off by default) prints a
 completion script for `hex` to stdout and nothing else. The script is
