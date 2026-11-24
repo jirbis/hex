@@ -358,7 +358,7 @@ pub(super) fn choose(ui: &mut Ui) {
                 label: tr("Audio files").into(),
                 extensions: EXTENSIONS,
             }]),
-            directory: crate::app_paths::audio_dir(),
+            directory: crate::desktop::file_dialog::audio_directory(),
         },
         move || {
             if let Some(waker) = &waker {
@@ -376,6 +376,7 @@ fn poll_chooser(ui: &mut Ui) -> bool {
     ui.drop.chooser = None;
     match choice {
         Ok(Some(path)) => {
+            crate::desktop::file_dialog::remember_audio_directory(&path);
             ui.drop.notice = None;
             ui.drop.queue.push_back(path);
             start(ui);
