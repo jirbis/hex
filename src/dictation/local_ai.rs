@@ -29,12 +29,37 @@ struct Config {
     api: Api,
 }
 
-/// No background service is started by Hex. Opt in by setting an endpoint
-/// in the app's launch environment, and enabling its Labs switch.
-pub(crate) fn configured() -> bool {
-    std::env::var("HEX_LOCAL_AI_ENDPOINT")
-        .ok()
-        .is_some_and(|value| !value.trim().is_empty())
+/// Validate launch settings without contacting the server. Errors are safe
+/// to display in Labs and do not contain transcripts or API credentials.
+pub(crate) fn configuration_problem() -> Option<String> {
+    Config::read().err().map(|error| error.to_string())
+}
+
+/// Share one URL parser between runtime configuration and security tests.
+/// Parsing the typed host also supports IPv6 [::1] correctly.
+fn parse_endpoint(endpoint: &str) -> Result<(String, Api)> {
+    let url = url::Url::parse(endpoint).wrap_err("invalid HEX_LOCAL_AI_ENDPOINT")?;
+    let loopback = match url.host() {
+        Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    };
+    if url.scheme() != "http"
+        || !loopback
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        bail!("HEX_LOCAL_AI_ENDPOINT must be an HTTP loopback URL with no credentials or query");
+    }
+    let api = match url.path() {
+        "/api/chat" => Api::Ollama,
+        "/v1/chat/completions" => Api::OpenAi,
+        _ => bail!("HEX_LOCAL_AI_ENDPOINT must end in /api/chat or /v1/chat/completions"),
+    };
+    Ok((url.to_string(), api))
 }
 
 impl Config {
@@ -42,24 +67,7 @@ impl Config {
         let endpoint = std::env::var("HEX_LOCAL_AI_ENDPOINT").map_err(|_| {
             eyre!("set HEX_LOCAL_AI_ENDPOINT for a local llama.cpp or Ollama server")
         })?;
-        let endpoint = endpoint.trim();
-        let url = url::Url::parse(endpoint).wrap_err("invalid HEX_LOCAL_AI_ENDPOINT")?;
-        if url.scheme() != "http"
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.query().is_some()
-            || url.fragment().is_some()
-            || !matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
-        {
-            bail!(
-                "HEX_LOCAL_AI_ENDPOINT must be an HTTP loopback URL with no credentials or query"
-            );
-        }
-        let api = match url.path() {
-            "/api/chat" => Api::Ollama,
-            "/v1/chat/completions" => Api::OpenAi,
-            _ => bail!("HEX_LOCAL_AI_ENDPOINT must end in /api/chat or /v1/chat/completions"),
-        };
+        let (endpoint, api) = parse_endpoint(endpoint.trim())?;
         let model = std::env::var("HEX_LOCAL_AI_MODEL")
             .ok()
             .filter(|name| !name.trim().is_empty())
@@ -70,11 +78,7 @@ impl Config {
         if api == Api::Ollama && model == DEFAULT_MODEL {
             bail!("set HEX_LOCAL_AI_MODEL to an installed Ollama model, e.g. qwen2.5:3b");
         }
-        Ok(Self {
-            endpoint: endpoint.into(),
-            model,
-            api,
-        })
+        Ok(Self { endpoint, model, api })
     }
 }
 
@@ -139,11 +143,12 @@ pub(crate) fn generate_text(
     let client = crate::net::loopback_agent(|builder| {
         builder
             .max_redirects(0)
+            .timeout_global(Some(deadline))
             .timeout_connect(Some(Duration::from_millis(500).min(deadline)))
-            .timeout_recv_response(Some(deadline))
-            .timeout_recv_body(Some(deadline))
-            .timeout_send_body(Some(deadline))
     });
+    if cancelled.load(Ordering::Acquire) {
+        bail!("local model request cancelled");
+    }
     let mut response = client
         .post(&config.endpoint)
         .header("Content-Type", "application/json")
@@ -192,23 +197,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_loopback_chat_endpoints_are_allowed() {
-        // Tests the same URL constraints without changing process environment.
+    fn accepts_valid_local_hosts_and_both_apis() {
+        for endpoint in [
+            "http://localhost:11434/api/chat",
+            "http://127.0.0.1:8080/v1/chat/completions",
+            "http://127.0.0.2:8080/v1/chat/completions",
+            "http://[::1]:11434/api/chat",
+        ] {
+            let (_, api) = parse_endpoint(endpoint).expect(endpoint);
+            if endpoint.ends_with("/api/chat") {
+                assert_eq!(api, Api::Ollama);
+            } else {
+                assert_eq!(api, Api::OpenAi);
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_remote_hosts_credentials_and_bad_protocols() {
         for endpoint in [
             "https://127.0.0.1:8080/v1/chat/completions",
             "http://192.168.1.50:8080/v1/chat/completions",
+            "http://[::2]:8080/api/chat",
             "http://127.0.0.1:8080/unsafe",
             "http://user:pass@localhost:11434/api/chat",
+            "http://localhost:11434/api/chat?token=secret",
+            "http://localhost:11434/api/chat#fragment",
+            "garbage",
         ] {
-            let url = url::Url::parse(endpoint).unwrap();
-            assert!(
-                url.scheme() != "http"
-                    || !matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
-                    || !url.username().is_empty()
-                    || url.password().is_some()
-                    || !matches!(url.path(), "/api/chat" | "/v1/chat/completions"),
-                "{endpoint} should be refused"
-            );
+            assert!(parse_endpoint(endpoint).is_err(), "{endpoint} should be refused");
         }
     }
 }
