@@ -494,6 +494,21 @@ pub(super) fn reveal_card(ui: &mut Ui, lab: Lab, tx: &mut Tx) {
     tx.focus(row_key(lab), true);
 }
 
+/// Show Intel local-model configuration errors without making Labs
+/// look like Apple Intelligence is required on Intel Macs.
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn intel_local_ai_note(ready_note: &'static str) -> String {
+    match crate::dictation::local_ai::configuration_problem() {
+        Some(reason) => format!("Local AI unavailable: {reason}"),
+        None => tr(ready_note).to_owned(),
+    }
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+fn intel_local_ai_note(ready_note: &'static str) -> String {
+    tr(ready_note).to_owned()
+}
+
 fn rows(ui: &Ui) -> Vec<Row> {
     let caps = ui.platform.caps;
     let settings = &ui.settings;
@@ -690,9 +705,12 @@ fn rows(ui: &Ui) -> Vec<Row> {
     if caps.os == super::platform::Os::Macos {
         let clean_up = row(Feature::CleanUpWithAppleIntelligence, Some(&SPARKLES));
         if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-            rows.push(Row {
-                note: Some(tr("Requires a loopback llama.cpp or Ollama server. Set HEX_LOCAL_AI_ENDPOINT and HEX_LOCAL_AI_MODEL in Hex's launch environment.").to_owned()),
-                ..clean_up
+            rows.push(match Feature::CleanUpWithAppleIntelligence.managed() {
+                Some(_) => clean_up,
+                None => Row {
+                    note: Some(intel_local_ai_note("Requires a loopback llama.cpp or Ollama server. Set HEX_LOCAL_AI_ENDPOINT and HEX_LOCAL_AI_MODEL in Hex's launch environment.")),
+                    ..clean_up
+                },
             });
         } else {
             rows.push(match Feature::CleanUpWithAppleIntelligence.managed() {
@@ -708,9 +726,12 @@ fn rows(ui: &Ui) -> Vec<Row> {
         // OpenCode rewrite.
         let neutral = row(Feature::NeutralVoice, Some(&SPARKLES));
         if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-            rows.push(Row {
-                note: Some(tr("Uses the same local server as Clean up with local AI. Enable Neutral voice in the chosen mode too.").to_owned()),
-                ..neutral
+            rows.push(match Feature::NeutralVoice.managed() {
+                Some(_) => neutral,
+                None => Row {
+                    note: Some(intel_local_ai_note("Uses the same local server as Clean up with local AI. Enable Neutral voice in the chosen mode too.")),
+                    ..neutral
+                },
             });
         } else {
             rows.push(match Feature::NeutralVoice.managed() {
