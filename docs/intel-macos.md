@@ -134,9 +134,11 @@ launchctl setenv HEX_LOCAL_AI_MODEL local
 
 An Ollama-pulled model can be used directly: its GGUF is the largest blob
 under `~/.ollama/models/blobs/`. Pick `Vulkan0` explicitly; the Intel UHD 630
-(`Vulkan1`) is about ten times slower. The server log should report the
-layers offloaded to `Vulkan0`. `-a local` names the single loaded model,
-which is what `HEX_LOCAL_AI_MODEL=local` refers to.
+(`Vulkan1`) is about ten times slower. Recent llama.cpp builds do not log
+the offloaded layer count at the default verbosity, so judge by speed: the
+server's `print_timing` line should show ~45 generated tokens/s, not ~14.
+`-a local` names the single loaded model, which is what
+`HEX_LOCAL_AI_MODEL=local` refers to.
 
 Both servers use Hex's native APIs: Ollama's non-streaming `/api/chat`, and
 llama.cpp's OpenAI-compatible `/v1/chat/completions`. Neither is started,
