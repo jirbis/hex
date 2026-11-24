@@ -481,11 +481,19 @@ impl Pump {
     /// `hex transcribe` (which runs an independent CLI transcript pipeline).
     fn queue_transcription_file(&mut self, file: std::path::PathBuf) -> ControlReply {
         if !crate::labs::drop_transcribe() {
-            return ControlReply::error("feature-off", "Enable Labs › Transcribe dropped audio first");
+            return ControlReply::error(
+                "feature-off",
+                "Enable Labs › Transcribe dropped audio first",
+            );
         }
         let file = match std::fs::canonicalize(&file) {
             Ok(file) if file.is_file() => file,
-            _ => return ControlReply::error("invalid", "The audio file does not exist or cannot be read"),
+            _ => {
+                return ControlReply::error(
+                    "invalid",
+                    "The audio file does not exist or cannot be read",
+                );
+            }
         };
         let supported = file
             .extension()
