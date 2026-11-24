@@ -108,6 +108,24 @@ launchctl unsetenv HEX_LOCAL_AI_ENDPOINT
 launchctl unsetenv HEX_LOCAL_AI_MODEL
 ```
 
+A cold Ollama model may take longer than the 6-second cleanup budget to
+load. Warm it with an empty, non-private prompt before dictating, and retain
+it in memory for a while:
+
+```sh
+curl --fail --silent --show-error http://127.0.0.1:11434/api/generate \\
+  -H 'Content-Type: application/json' \\
+  -d '{"model":"qwen2.5:3b","prompt":"","stream":false,"keep_alive":"30m"}'
+```
+
+The cleanup (6 s) and neutral voice (10 s) limits are **whole HTTP request
+budgets**, not separate timeouts per response phase. A real cancellation flag
+is passed through the processing pipeline; cancellation before sending prevents
+a request, and a cancellation during blocking HTTP is noticed after the server
+answers or the whole-request timeout expires. The HTTP client does not abort
+an in-flight socket immediately. The Labs cards surface invalid endpoint/model
+configuration, and managed organization policy still overrides their switches.
+
 If the server is absent, times out, returns invalid JSON, rewrites too
 aggressively, or gives an empty answer, Hex pastes the original text.
 The local LLM is **only for post-processing text**; the speech recognizer
