@@ -124,17 +124,17 @@ pub(crate) fn stage(
     }
     if let Some(reason) = unavailable_reason() {
         tracing::info!(
-            reason,
-            "dictation neutral voice skipped: Apple Intelligence is unavailable"
+            reason = %reason,
+            "dictation neutral voice skipped: text model unavailable"
         );
         return (text.to_owned(), None);
     }
-    rewrite(text)
+    rewrite(text, cancelled)
 }
 
 /// One on-device pass, with the time budget the bridge enforces.
 #[cfg(target_os = "macos")]
-fn rewrite(text: &str) -> (String, Option<ProcessingObservation>) {
+fn rewrite(text: &str, cancelled: &AtomicBool) -> (String, Option<ProcessingObservation>) {
     let started = Instant::now();
     #[cfg(target_arch = "x86_64")]
     let outcome = crate::dictation::local_ai::generate_text(
@@ -142,7 +142,7 @@ fn rewrite(text: &str) -> (String, Option<ProcessingObservation>) {
         text,
         TEMPERATURE,
         TIME_BUDGET,
-        &AtomicBool::new(false),
+        cancelled,
     );
     #[cfg(not(target_arch = "x86_64"))]
     let outcome =
@@ -176,7 +176,7 @@ fn rewrite(text: &str) -> (String, Option<ProcessingObservation>) {
 /// Every other OS has no Apple Intelligence, so [`stage`] never asks for a
 /// pass.
 #[cfg(not(target_os = "macos"))]
-fn rewrite(text: &str) -> (String, Option<ProcessingObservation>) {
+fn rewrite(text: &str, _cancelled: &AtomicBool) -> (String, Option<ProcessingObservation>) {
     (text.to_owned(), None)
 }
 
