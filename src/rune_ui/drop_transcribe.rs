@@ -335,6 +335,7 @@ fn rejected(ui: &mut Ui, files: &[PathBuf], tx: &mut Tx) {
 /// Queues a file passed by the local CLI into exactly the same worker queue
 /// as a dropped or picked file. The control host validates the file first;
 /// this check prevents work if Labs was disabled before the window adopted it.
+#[cfg(any(test, target_os = "macos"))]
 pub(crate) fn enqueue_file_from_cli(ui: &mut Ui, path: PathBuf) -> bool {
     if !on(ui) {
         return false;
