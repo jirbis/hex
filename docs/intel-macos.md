@@ -123,8 +123,11 @@ budgets**, not separate timeouts per response phase. A real cancellation flag
 is passed through the processing pipeline; cancellation before sending prevents
 a request, and a cancellation during blocking HTTP is noticed after the server
 answers or the whole-request timeout expires. The HTTP client does not abort
-an in-flight socket immediately. The Labs cards surface invalid endpoint/model
-configuration, and managed organization policy still overrides their switches.
+an in-flight socket immediately. The Labs cards say **Local AI ready:** with the
+model and server Hex read at launch (e.g. `qwen2.5:3b · 127.0.0.1:11434`), or
+**Local AI unavailable:** with the reason. "Ready" checks only the settings,
+not whether the server is running. Managed organization policy still
+overrides their switches.
 
 If the server is absent, times out, returns invalid JSON, rewrites too
 aggressively, or gives an empty answer, Hex pastes the original text.

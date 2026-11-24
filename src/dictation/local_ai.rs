@@ -32,7 +32,31 @@ struct Config {
 /// Validate launch settings without contacting the server. Errors are safe
 /// to display in Labs and do not contain transcripts or API credentials.
 pub(crate) fn configuration_problem() -> Option<String> {
-    Config::read().err().map(|error| error.to_string())
+    configuration_status().err()
+}
+
+/// The model and loopback server Labs can name once the launch settings are
+/// valid (`qwen2.5:3b · 127.0.0.1:11434`), or why they are not. Like
+/// [`configuration_problem`], this never contacts the server, so "valid"
+/// does not mean the server is running.
+pub(crate) fn configuration_status() -> std::result::Result<String, String> {
+    Config::read()
+        .map(|config| describe(&config.model, &config.endpoint))
+        .map_err(|error| error.to_string())
+}
+
+fn describe(model: &str, endpoint: &str) -> String {
+    let server = url::Url::parse(endpoint)
+        .ok()
+        .and_then(|url| {
+            let host = url.host_str()?.to_owned();
+            Some(match url.port_or_known_default() {
+                Some(port) => format!("{host}:{port}"),
+                None => host,
+            })
+        })
+        .unwrap_or_else(|| endpoint.to_owned());
+    format!("{model} · {server}")
 }
 
 /// Share one URL parser between runtime configuration and security tests.
@@ -215,6 +239,22 @@ mod tests {
                 assert_eq!(api, Api::OpenAi);
             }
         }
+    }
+
+    #[test]
+    fn describes_the_model_and_server_without_the_path() {
+        assert_eq!(
+            describe("qwen2.5:3b", "http://127.0.0.1:11434/api/chat"),
+            "qwen2.5:3b · 127.0.0.1:11434"
+        );
+        assert_eq!(
+            describe("local", "http://[::1]:8080/v1/chat/completions"),
+            "local · [::1]:8080"
+        );
+        assert_eq!(
+            describe("local", "http://localhost/v1/chat/completions"),
+            "local · localhost:80"
+        );
     }
 
     #[test]

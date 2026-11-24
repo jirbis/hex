@@ -494,13 +494,13 @@ pub(super) fn reveal_card(ui: &mut Ui, lab: Lab, tx: &mut Tx) {
     tx.focus(row_key(lab), true);
 }
 
-/// Show Intel local-model configuration errors without making Labs
+/// Name the configured Intel local model, or why it is unusable, without making Labs
 /// look like Apple Intelligence is required on Intel Macs.
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn intel_local_ai_note(ready_note: &'static str) -> String {
-    match crate::dictation::local_ai::configuration_problem() {
-        Some(reason) => format!("Local AI unavailable: {reason}"),
-        None => tr(ready_note).to_owned(),
+    match crate::dictation::local_ai::configuration_status() {
+        Ok(server) => format!("Local AI ready: {server}. {}", tr(ready_note)),
+        Err(reason) => format!("Local AI unavailable: {reason}"),
     }
 }
 
@@ -708,7 +708,7 @@ fn rows(ui: &Ui) -> Vec<Row> {
             rows.push(match Feature::CleanUpWithAppleIntelligence.managed() {
                 Some(_) => clean_up,
                 None => Row {
-                    note: Some(intel_local_ai_note("Requires a loopback llama.cpp or Ollama server. Set HEX_LOCAL_AI_ENDPOINT and HEX_LOCAL_AI_MODEL in Hex's launch environment.")),
+                    note: Some(intel_local_ai_note("Text goes only to this loopback llama.cpp or Ollama server, set by HEX_LOCAL_AI_ENDPOINT and HEX_LOCAL_AI_MODEL.")),
                     ..clean_up
                 },
             });
