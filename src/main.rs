@@ -780,6 +780,14 @@ mod tests {
             ]),
             Ok(Some(Command::Control(ControlCli::Settings { .. })))
         ));
+        for name in ["transcribe-file", "transfer-file"] {
+            assert!(matches!(
+                parse(&["hex", "window", name, "/recordings/call.m4a"]),
+                Ok(Some(Command::Control(ControlCli::Window {
+                    command: crate::control::cli::WindowCommand::TranscribeFile { file, .. }
+                }))) if file.ends_with("call.m4a")
+            ));
+        }
         assert!(matches!(
             parse(&["hex", "window", "show", "history"]),
             Ok(Some(Command::Control(ControlCli::Window { .. })))
