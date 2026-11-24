@@ -332,6 +332,20 @@ fn rejected(ui: &mut Ui, files: &[PathBuf], tx: &mut Tx) {
     tx.instant();
 }
 
+/// Queues a file passed by the local CLI into exactly the same worker queue
+/// as a dropped or picked file. The control host validates the file first;
+/// this check prevents work if Labs was disabled before the window adopted it.
+#[cfg(any(test, target_os = "macos"))]
+pub(crate) fn enqueue_file_from_cli(ui: &mut Ui, path: PathBuf) -> bool {
+    if !on(ui) {
+        return false;
+    }
+    ui.drop.notice = None;
+    ui.drop.queue.push_back(path);
+    start(ui);
+    true
+}
+
 /// Starts the next queued file at the dictation selection in use.
 fn start(ui: &mut Ui) {
     let wake = ui.modes.waker.clone();
@@ -358,7 +372,7 @@ pub(super) fn choose(ui: &mut Ui) {
                 label: tr("Audio files").into(),
                 extensions: EXTENSIONS,
             }]),
-            directory: crate::app_paths::audio_dir(),
+            directory: crate::desktop::file_dialog::audio_directory(),
         },
         move || {
             if let Some(waker) = &waker {
@@ -376,6 +390,7 @@ fn poll_chooser(ui: &mut Ui) -> bool {
     ui.drop.chooser = None;
     match choice {
         Ok(Some(path)) => {
+            crate::desktop::file_dialog::remember_audio_directory(&path);
             ui.drop.notice = None;
             ui.drop.queue.push_back(path);
             start(ui);

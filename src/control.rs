@@ -141,6 +141,9 @@ pub enum ControlCommand {
         #[serde(default)]
         pane: Option<Pane>,
     },
+    /// Queue an existing audio/video file in Labs › Transcribe dropped audio.
+    /// Distinct from `hex transcribe`, which prints the transcript on stdout.
+    WindowTranscribeFile { file: std::path::PathBuf },
     WindowHide,
     /// Replay the first-run onboarding in the window (dev, test, and local
     /// builds); settings, history, models, and permissions stay.
@@ -1303,6 +1306,9 @@ mod tests {
             ControlCommand::ModelCancel,
             ControlCommand::WindowShow {
                 pane: Some(Pane::History),
+            },
+            ControlCommand::WindowTranscribeFile {
+                file: "/recordings/interview.m4a".into(),
             },
             ControlCommand::WindowHide,
             ControlCommand::OnboardingReset,

@@ -271,6 +271,9 @@ impl Pump {
                 })
             }
             ControlCommand::WindowShow { pane } => Some(reply_with(self.show_window(pane))),
+            ControlCommand::WindowTranscribeFile { file } => {
+                Some(self.queue_transcription_file(file))
+            }
             ControlCommand::WindowHide => Some(if window_visible() {
                 self.window.close();
                 ControlReply::done("Closed the window")
@@ -472,6 +475,52 @@ impl Pump {
             }
         }
         Ok(ControlReply::done(change.message))
+    }
+
+    /// Hands a local file to Labs' existing one-at-a-time drop queue, not to
+    /// `hex transcribe` (which runs an independent CLI transcript pipeline).
+    fn queue_transcription_file(&mut self, file: std::path::PathBuf) -> ControlReply {
+        if !crate::labs::drop_transcribe() {
+            return ControlReply::error(
+                "feature-off",
+                "Enable Labs › Transcribe dropped audio first",
+            );
+        }
+        let file = match std::fs::canonicalize(&file) {
+            Ok(file) if file.is_file() => file,
+            _ => {
+                return ControlReply::error(
+                    "invalid",
+                    "The audio file does not exist or cannot be read",
+                );
+            }
+        };
+        let supported = file
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                crate::transcription::file_transcript::EXTENSIONS
+                    .iter()
+                    .any(|allowed| ext.eq_ignore_ascii_case(allowed))
+            });
+        if !supported {
+            return ControlReply::error(
+                "unsupported",
+                "This file type is not supported by Labs › Transcribe dropped audio",
+            );
+        }
+        let name = file.file_name().map_or_else(
+            || file.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        show(&self.window, Destination::Settings);
+        self.window.update(move |ui, tx| {
+            if crate::rune_ui::drop_transcribe::enqueue_file_from_cli(ui, file) {
+                tx.instant();
+            }
+        });
+        bring_window_forward();
+        ControlReply::done(format!("Queued {name} for Labs › Transcribe dropped audio"))
     }
 
     fn show_window(&mut self, pane: Option<Pane>) -> Result<ControlReply, ControlError> {

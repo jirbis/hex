@@ -540,7 +540,7 @@ fn choose_import(ui: &mut Ui) {
                 label: tr("Audio files").into(),
                 extensions: &["wav", "m4a", "mp3", "aiff", "aif", "caf"],
             }]),
-            directory: dirs::audio_dir(),
+            directory: crate::desktop::file_dialog::audio_directory(),
         },
         wake,
     ));
@@ -555,6 +555,7 @@ pub(super) fn poll_import(ui: &mut Ui) -> bool {
     ui.meetings.import_chooser = None;
     match choice {
         Ok(Some(path)) => {
+            crate::desktop::file_dialog::remember_audio_directory(&path);
             ask(ui, MeetingRequest::Import(path));
         }
         Ok(None) => {}

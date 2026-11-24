@@ -3807,6 +3807,12 @@ route, so a skipped recording keeps the setting's pre-roll. Checks:
 Bluetooth headphones and the lab on, and the Linux and Windows backends on a
 real desktop.
 
+The audio file pickers in Labs › Transcribe dropped audio and Meetings ›
+Import audio share the most recently selected folder, remembered across app
+restarts in application support. On macOS, the CLI can also send an existing
+file to the running Labs queue via `hex window transcribe-file <file>` (alias
+`transfer-file`); this is not the standalone stdout-only `hex transcribe`.
+
 Transcribe dropped audio (`drop-transcribe`, every OS): while on, a file
 dropped anywhere on Hex's window, or chosen with the lab card's "Transcribe a
 file…", joins one queue the window runs one file at a time.

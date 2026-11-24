@@ -371,6 +371,14 @@ pub enum WindowCommand {
         #[command(flatten)]
         output: Output,
     },
+    /// Queue an audio/video file in Labs › Transcribe dropped audio (macOS).
+    /// Unlike `hex transcribe`, the window saves a text file beside the recording.
+    #[command(visible_alias = "transfer-file")]
+    TranscribeFile {
+        file: std::path::PathBuf,
+        #[command(flatten)]
+        output: Output,
+    },
     /// Close the window. Hex keeps running in the menu bar.
     Hide {
         #[command(flatten)]
@@ -533,6 +541,9 @@ pub fn run(command: ControlCli, top_level: impl FnOnce() -> clap::Command) -> u8
         ControlCli::Window { command } => match command {
             WindowCommand::Show { pane, output } => {
                 send(ControlCommand::WindowShow { pane }, output)
+            }
+            WindowCommand::TranscribeFile { file, output } => {
+                send(ControlCommand::WindowTranscribeFile { file }, output)
             }
             WindowCommand::Hide { output } => send(ControlCommand::WindowHide, output),
             WindowCommand::Story {

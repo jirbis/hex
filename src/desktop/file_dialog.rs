@@ -4,7 +4,7 @@
 //! answers on a channel, so neither the window nor the runtime waits on the
 //! person.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
 
 fn show(dialog: Dialog, reply: Reply) {
@@ -56,6 +56,47 @@ pub(crate) struct Filter {
 
 /// The chosen path, `None` when the person cancelled.
 pub(crate) type Choice = Result<Option<PathBuf>, String>;
+
+/// The two audio file pickers share one remembered folder, kept in Hex's
+/// private application-support directory rather than in the app bundle.
+/// Cancelled or failed selections must never replace it.
+const LAST_AUDIO_DIRECTORY: &str = "last-audio-directory";
+
+fn stored_audio_directory(file: &Path) -> Option<PathBuf> {
+    std::fs::read_to_string(file)
+        .ok()
+        .map(|saved| PathBuf::from(saved.trim_end_matches('\n')))
+        .filter(|folder| folder.is_absolute() && folder.is_dir())
+}
+
+pub(crate) fn audio_directory() -> Option<PathBuf> {
+    let previous = crate::app_paths::support_dir()
+        .ok()
+        .and_then(|root| stored_audio_directory(&root.join(LAST_AUDIO_DIRECTORY)));
+    previous.or_else(crate::app_paths::audio_dir)
+}
+
+fn save_audio_directory(at: &Path, selected: &Path) -> std::io::Result<()> {
+    let folder = selected
+        .parent()
+        .filter(|path| path.is_absolute() && path.is_dir());
+    let Some(folder) = folder else {
+        return Ok(());
+    };
+    if let Some(parent) = at.parent() {
+        crate::app_paths::create_private_dir(parent)?;
+    }
+    std::fs::write(at, folder.to_string_lossy().as_bytes())
+}
+
+pub(crate) fn remember_audio_directory(selected: &Path) {
+    let Ok(root) = crate::app_paths::support_dir() else {
+        return;
+    };
+    if let Err(error) = save_audio_directory(&root.join(LAST_AUDIO_DIRECTORY), selected) {
+        tracing::warn!(%error, "could not remember the audio file folder");
+    }
+}
 
 /// Opens `dialog` without waiting for it; `wake` runs once it answers.
 pub(crate) fn open(dialog: Dialog, wake: impl Fn() + Send + 'static) -> Pending {
@@ -151,6 +192,30 @@ mod tests {
         drop(reply);
         assert_eq!(pending.poll(), Some(Ok(None)));
         assert_eq!(wakes.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn audio_folder_survives_a_new_dialog_and_ignores_invalid_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "hex-audio-folder-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let folder = root.join("selected recording folder");
+        std::fs::create_dir_all(&folder).unwrap();
+        let stored = root.join("last-audio-directory");
+        save_audio_directory(&stored, &folder.join("interview.m4a")).unwrap();
+        assert_eq!(stored_audio_directory(&stored), Some(folder.clone()));
+        // A cancelled chooser never calls save_audio_directory; invalid files
+        // also cannot overwrite the previous real folder.
+        save_audio_directory(&stored, Path::new("/missing/recording.wav")).unwrap();
+        assert_eq!(stored_audio_directory(&stored), Some(folder.clone()));
+        std::fs::write(&stored, "/missing/audio-directory").unwrap();
+        assert_eq!(stored_audio_directory(&stored), None);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
