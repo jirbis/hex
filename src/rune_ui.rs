@@ -15,7 +15,7 @@ pub(crate) mod capture_capsule;
 mod controls;
 #[cfg(target_os = "macos")]
 pub(crate) mod deep_link;
-mod drop_transcribe;
+pub(crate) mod drop_transcribe;
 mod explainer;
 mod find_popover;
 mod found;
