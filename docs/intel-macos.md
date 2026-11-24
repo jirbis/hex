@@ -113,8 +113,8 @@ load. Warm it with an empty, non-private prompt before dictating, and retain
 it in memory for a while:
 
 ```sh
-curl --fail --silent --show-error http://127.0.0.1:11434/api/generate \\
-  -H 'Content-Type: application/json' \\
+curl --fail --silent --show-error http://127.0.0.1:11434/api/generate \
+  -H 'Content-Type: application/json' \
   -d '{"model":"qwen2.5:3b","prompt":"","stream":false,"keep_alive":"30m"}'
 ```
 

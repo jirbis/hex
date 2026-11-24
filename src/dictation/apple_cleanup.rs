@@ -152,13 +152,8 @@ pub(crate) fn observation(
 fn clean(text: &str, cancelled: &AtomicBool) -> (String, Option<ProcessingObservation>) {
     let started = Instant::now();
     #[cfg(target_arch = "x86_64")]
-    let outcome = crate::dictation::local_ai::generate_text(
-        INSTRUCTIONS,
-        text,
-        0.2,
-        TIME_BUDGET,
-        cancelled,
-    );
+    let outcome =
+        crate::dictation::local_ai::generate_text(INSTRUCTIONS, text, 0.2, TIME_BUDGET, cancelled);
     #[cfg(not(target_arch = "x86_64"))]
     let outcome = crate::apple_intelligence::generate_text(INSTRUCTIONS, text, 0.2, TIME_BUDGET);
     let latency_ms = started.elapsed().as_millis() as u64;

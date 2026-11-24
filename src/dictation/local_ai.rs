@@ -78,7 +78,11 @@ impl Config {
         if api == Api::Ollama && model == DEFAULT_MODEL {
             bail!("set HEX_LOCAL_AI_MODEL to an installed Ollama model, e.g. qwen2.5:3b");
         }
-        Ok(Self { endpoint, model, api })
+        Ok(Self {
+            endpoint,
+            model,
+            api,
+        })
     }
 }
 
@@ -225,7 +229,10 @@ mod tests {
             "http://localhost:11434/api/chat#fragment",
             "garbage",
         ] {
-            assert!(parse_endpoint(endpoint).is_err(), "{endpoint} should be refused");
+            assert!(
+                parse_endpoint(endpoint).is_err(),
+                "{endpoint} should be refused"
+            );
         }
     }
 }
