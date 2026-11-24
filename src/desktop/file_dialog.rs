@@ -77,7 +77,9 @@ pub(crate) fn audio_directory() -> Option<PathBuf> {
 }
 
 fn save_audio_directory(at: &Path, selected: &Path) -> std::io::Result<()> {
-    let folder = selected.parent().filter(|path| path.is_absolute() && path.is_dir());
+    let folder = selected
+        .parent()
+        .filter(|path| path.is_absolute() && path.is_dir());
     let Some(folder) = folder else {
         return Ok(());
     };
