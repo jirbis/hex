@@ -61,44 +61,86 @@ sends text to a non-loopback address. Redirects are disabled. The response
 is capped at 256 KiB. Cleanup has a 6-second budget; neutral voice has 10
 seconds on Intel, with fallbacks. The code paths on Apple Silicon are untouched.
 
-### Recommended: llama.cpp Vulkan/MoltenVK on the Radeon GPU
+### Local LLM on the Radeon GPU: two verified paths
 
-The **measured** fast path from November 10 was *llama.cpp with Vulkan*,
-not stock Ollama Metal. Qwen2.5 3B Q4_K_M yielded roughly 47 generated
-tokens/s using all Vulkan GPU layers, versus ~14 tokens/s on the i9 CPU.
-Use the working Vulkan/MoltenVK build and GGUF from that experiment, then
-start its OpenAI-compatible server on **127.0.0.1 only**, e.g.:
+Hex only calls a loopback server; which device that server uses is up to the
+server. On the test Mac (MacBook Pro 16" 2019, i9-9880H, Radeon Pro 5500M
+8 GB, macOS 15.1) **only Vulkan through MoltenVK** puts the model on the
+Radeon:
+
+| Server | Device | Qwen2.5 3B Q4_K_M, generated tok/s |
+|---|---|---|
+| Stock Ollama (Homebrew 0.6.3) | CPU (`library=cpu`) | ~5–14 |
+| llama.cpp CPU | i9 CPU | ~14 |
+| llama.cpp Metal, all layers | fails (GPU timeout / hang) | – |
+| **llama.cpp Vulkan, all layers** (Nov 10) | Radeon | **~47** |
+| **OllamaGPU 0.40.10, Vulkan** (Nov 24) | Radeon | **~46** |
+
+Offload all layers or none: partial offload (4 or 12 layers) is no faster
+than the CPU. Stock Ollama and the `Momin010/ollama-vulkan-macos` patch
+script are **not** what was measured here.
+
+#### Path A: OllamaGPU (Ollama with a Vulkan backend)
+
+[`baksogen/ollama_GPU`](https://github.com/baksogen/ollama_GPU) release
+`v0.40.10` ships `OllamaGPU.app`: Ollama with `libggml-vulkan.so` and its own
+`libMoltenVK.dylib`, so no Homebrew Vulkan packages are needed. It is a
+third-party build, not signed or notarized by Ollama.
 
 ```sh
-# Substitute the existing Vulkan-enabled llama-server binary and GGUF path.
-./llama-server --model /absolute/path/to/qwen2.5-3b-q4_k_m.gguf \
-  --host 127.0.0.1 --port 8080 --n-gpu-layers 99 --ctx-size 4096
-
-# In another terminal, make the settings available to Finder-launched Hex.
-launchctl setenv HEX_LOCAL_AI_ENDPOINT http://127.0.0.1:8080/v1/chat/completions
-launchctl setenv HEX_LOCAL_AI_MODEL local
-open -a "Hex Test"
-```
-
-The `local` model name is an alias for the single loaded llama.cpp model,
-not an Ollama catalog entry. The model is loaded into the server, not Hex.
-Check the server's GPU logs; no GPU speedup is inferred merely from selecting
-this URL.
-
-### Alternative: Ollama on localhost
-
-```sh
+# After downloading OllamaGPU.app.zip from that release:
+ditto -x -k ~/Downloads/OllamaGPU.app.zip /tmp/ollamagpu
+mv /tmp/ollamagpu/OllamaGPU.app /Applications/Ollama.app
+xattr -dr com.apple.quarantine /Applications/Ollama.app
+open /Applications/Ollama.app         # serves on 127.0.0.1:11434
+ollama --version                      # 0.40.10-24-gdc3d660
 ollama pull qwen2.5:3b
-ollama serve  # only if the Ollama service is not already running
+
 launchctl setenv HEX_LOCAL_AI_ENDPOINT http://127.0.0.1:11434/api/chat
 launchctl setenv HEX_LOCAL_AI_MODEL qwen2.5:3b
-open -a "Hex Test"
 ```
 
-The Ollama option uses its native non-streaming `/api/chat` API, rather than
-its OpenAI compatibility layer. GPU performance is **not proven** for this
-Ollama setup on the Radeon; the ~3.3x result applies to the tested
-llama.cpp Vulkan server.
+On first launch the app points `/usr/local/bin/ollama` at itself. A Homebrew
+`ollama` may still be installed; `brew link ollama` or `brew upgrade ollama`
+puts the CPU-only binary back on the `PATH`, and a server started with
+`ollama serve` from that binary runs on the CPU. Quit the app before starting
+another server on port 11434.
+
+Check that the model really sits on the GPU (load it once first):
+
+```sh
+curl -s localhost:11434/api/ps   # size_vram must equal size
+ollama run qwen2.5:3b --verbose "Write 200 words about a lighthouse."
+# eval rate: ~45 tokens/s on the Radeon; ~14 or less means CPU
+```
+
+#### Path B: llama.cpp built with Vulkan
+
+```sh
+brew install molten-vk vulkan-loader vulkan-headers glslang shaderc
+git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
+VULKAN_SDK=/usr/local cmake -B build-vulkan -DGGML_VULKAN=ON -DGGML_METAL=OFF \
+  -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF
+cmake --build build-vulkan -j8 --target llama-server llama-bench
+
+export VK_ICD_FILENAMES=/usr/local/etc/vulkan/icd.d/MoltenVK_icd.json
+build-vulkan/bin/llama-server --list-devices  # Vulkan0 = Radeon, Vulkan1 = UHD 630
+build-vulkan/bin/llama-server -m /absolute/path/to/qwen2.5-3b-q4_k_m.gguf \
+  -dev Vulkan0 -ngl 99 -fa off -c 4096 --host 127.0.0.1 --port 8080 -a local
+
+launchctl setenv HEX_LOCAL_AI_ENDPOINT http://127.0.0.1:8080/v1/chat/completions
+launchctl setenv HEX_LOCAL_AI_MODEL local
+```
+
+An Ollama-pulled model can be used directly: its GGUF is the largest blob
+under `~/.ollama/models/blobs/`. Pick `Vulkan0` explicitly; the Intel UHD 630
+(`Vulkan1`) is about ten times slower. The server log should report the
+layers offloaded to `Vulkan0`. `-a local` names the single loaded model,
+which is what `HEX_LOCAL_AI_MODEL=local` refers to.
+
+Both servers use Hex's native APIs: Ollama's non-streaming `/api/chat`, and
+llama.cpp's OpenAI-compatible `/v1/chat/completions`. Neither is started,
+installed, or managed by Hex.
 
 Restart Hex after changing the launch environment. To opt out, disable
 the Labs switches and clear the environment:
