@@ -73,6 +73,28 @@ fn a_dropped_file_does_nothing_with_the_lab_off() {
 }
 
 #[test]
+fn cli_file_uses_the_same_drop_worker_and_respects_the_lab_switch() {
+    let file = PathBuf::from("/recordings/transferred.m4a");
+    let (mut enabled, started) = window(true);
+    assert!(crate::rune_ui::drop_transcribe::enqueue_file_from_cli(
+        &mut enabled.state,
+        file.clone(),
+    ));
+    settle(&mut enabled);
+    assert_eq!(files_ran(&started), vec![file.clone()]);
+    assert_eq!(enabled.state.drop.running(), Some(file.as_path()));
+
+    let (mut disabled, started) = window(false);
+    assert!(!crate::rune_ui::drop_transcribe::enqueue_file_from_cli(
+        &mut disabled.state,
+        file,
+    ));
+    settle(&mut disabled);
+    assert!(files_ran(&started).is_empty());
+    assert!(disabled.state.drop.running().is_none());
+}
+
+#[test]
 fn a_dropped_file_hovers_then_queues_a_job() {
     let (mut rt, started) = window(true);
     let at = landing(&rt);
