@@ -73,15 +73,24 @@ Radeon:
 | Stock Ollama (Homebrew 0.6.3) | CPU (`library=cpu`) | ~5–14 |
 | llama.cpp CPU | i9 CPU | ~14 |
 | llama.cpp Metal, all layers | fails (GPU timeout / hang) | – |
-| **llama.cpp Vulkan, all layers** (Nov 10) | Radeon | **~47** |
-| **OllamaGPU 0.40.10, Vulkan** (Nov 24) | Radeon | **~46** |
-| ollama-vulkan-macos (Momin010), *their* 5500M | Radeon | 45.7 (Llama 3.2 3B)¹ |
+| **ollama-vulkan-macos (Momin010) v0.32.3-vulkan.1** | Radeon | **45.4–45.9** |
+| **OllamaGPU 0.40.10** | Radeon | **44.8–46.7** |
+| **llama.cpp Vulkan, all layers** | Radeon | **45.9–47.8** |
 
-¹ Published by the project (`vulkan-macos/PERFORMANCE.md`; the README's more
-conservative table shows 36 tok/s against 38 for llama.cpp on the same run).
-Not re-measured on the test Mac. All three Radeon rows are llama.cpp's Vulkan
-backend underneath, so they share one ceiling; the project's report puts it
-at memory bandwidth (~164 GB/s achievable of 192 GB/s rated).
+Radeon rows: measured on the test Mac on 2026-11-25, back to back on the same
+`qwen2.5:3b` Q4_K_M GGUF, 200 generated tokens, median of 3 runs per round,
+two rounds per server (range shown). For both Ollama builds the model was
+fully in VRAM (`size_vram == size`, 2.07 GiB). The three are **equal within
+noise**: all are llama.cpp's Vulkan backend underneath and share one ceiling,
+which the Momin010 report attributes to memory bandwidth (~164 GB/s
+achievable of 192 GB/s rated). Its own published figure, 45.7 tok/s on
+Llama 3.2 3B, matches.
+
+**Thermals dominate any comparison on this laptop.** After a few minutes of
+generation macOS throttles (`pmset -g therm` shows `CPU_Speed_Limit` falling
+to 22–35) and the GPU slows with it: the same servers then measured 14.7–34.5
+tok/s, so whichever ran first "won". Benchmark only when `CPU_Speed_Limit`
+is 100 and let it recover between runs.
 
 Offload all layers or none: partial offload (4 or 12 layers) is no faster
 than the CPU.
@@ -143,7 +152,7 @@ ollama run qwen2.5:3b --verbose "Write 200 words about a lighthouse."
 
 #### Path B (fallback): llama.cpp built with Vulkan
 
-Same speed as Path A; no dependency on a third-party Ollama build. Hex
+Same speed as Path A (measured above); no dependency on a third-party Ollama build. Hex
 needs no Ollama for this path.
 
 ```sh
